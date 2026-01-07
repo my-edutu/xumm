@@ -1,0 +1,8 @@
+{
+  "name": "XUM AI",
+  "description": "A gamified AI training marketplace where users earn crypto by completing tasks like image annotation, audio recording, and RLHF validation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+    "name": "xum-ai-ecosystem",
+    "private": true,
+    "version": "1.0.0",
+    "description": "Unified management for XUM AI Multi-App Ecosystem",
+    "scripts": {
+        "dev": "npm run dev:all",
+        "dev:xum": "npm run dev --prefix \"XUM AI\"",
+        "dev:company": "npm run dev --prefix company",
+        "dev:admin": "npm run dev --prefix \"Admin Panel\"",
+        "dev:all": "npx concurrently -n \"XUM,CORP,ADMIN\" -c \"blue,green,magenta\" \"npm run dev:xum\" \"npm run dev:company\" \"npm run dev:admin\"",
+        "install:all": "npm install && npm install --prefix \"XUM AI\" && npm install --prefix company && npm install --prefix \"Admin Panel\""
+    },
+    "devDependencies": {
+        "concurrently": "^8.2.2"
+    }
+}
