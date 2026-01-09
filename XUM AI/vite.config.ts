@@ -20,13 +20,42 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [react()],
     define: {
+      '__DEV__': JSON.stringify(mode !== 'production'),
+      'process.env.NODE_ENV': JSON.stringify(mode),
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'global': 'globalThis',
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(__dirname, 'src'),
+        'react-native': path.resolve(__dirname, './react-native-web-shim.js'),
       }
+    },
+    optimizeDeps: {
+      esbuildOptions: {
+        loader: {
+          '.js': 'jsx',
+        },
+      },
+      include: ['expo-linear-gradient', 'expo-av', 'expo-camera', 'expo-media-library', 'expo-file-system']
+    },
+    build: {
+      commonjsOptions: {
+        transformMixedEsModules: true,
+      },
+      rollupOptions: {
+        onwarn(warning, warn) {
+          // Suppress JSX warnings in node_modules
+          if (warning.code === 'PLUGIN_WARNING') return;
+          warn(warning);
+        }
+      }
+    },
+    esbuild: {
+      loader: 'tsx',
+      include: /\.[jt]sx?$/,
+      exclude: [],
     }
   };
 });
