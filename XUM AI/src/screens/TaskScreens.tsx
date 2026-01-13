@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, TextInput, Alert, Platform, Image } from 'react-native';
+import ReactNative from 'react-native';
+const { View, Text, TouchableOpacity, ScrollView, TextInput, Alert, Platform, Image, ActivityIndicator } = ReactNative;
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CameraView, useCameraPermissions, CameraType } from 'expo-camera';
@@ -15,29 +16,38 @@ interface ScreenProps {
   onCompleteTask?: (reward: number, xp: number) => void;
 }
 
-// Enhanced Service with Supabase Integration
 const TaskService = {
   fetchActivePool: async (): Promise<Task[]> => {
-    try {
-      const { data, error } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('status', 'active');
-
-      if (error) throw error;
-      if (data && data.length > 0) return data as any;
-    } catch (e) {
-      console.warn("Supabase fetch failed, falling back to mock data", e);
-    }
-
-    // Fallback Mock Data
-    await new Promise(r => setTimeout(r, 800));
-    return [
+    // Fallback Mock Data function
+    const getMockData = (): Task[] => [
       { id: '1', title: 'Street Sign Labeling', description: 'Identify signs in urban images.', reward: 0.50, xp: 25, timeEstimate: '2m', difficulty: 'Easy', type: 'image', priority: true },
       { id: '2', title: 'Local Dialect Recording', description: 'Read sentences in native accent.', reward: 1.25, xp: 50, timeEstimate: '5m', difficulty: 'Medium', type: 'audio' },
       { id: '3', title: 'Sentiment Analysis', description: 'Analyze social media tones.', reward: 0.15, xp: 10, timeEstimate: '1m', difficulty: 'Easy', type: 'text' },
       { id: '4', title: 'Object Detection', description: 'Draw boxes around vehicles.', reward: 0.75, xp: 30, timeEstimate: '3m', difficulty: 'Medium', type: 'image' },
     ];
+
+    try {
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout')), 5000)
+      );
+
+      const fetchPromise = supabase
+        .from('tasks')
+        .select('*')
+        .eq('status', 'active');
+
+      const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+
+      if (result?.data && result.data.length > 0) {
+        return result.data as Task[];
+      }
+    } catch (e) {
+      console.warn("Supabase fetch failed, falling back to mock data", e);
+    }
+
+    // Return mock data immediately
+    return getMockData();
   },
   submitPayload: async (taskId: string, payload: any, reward: number, xp: number) => {
     try {
@@ -179,7 +189,7 @@ export const TaskMarketplaceScreen: React.FC<ScreenProps> = ({ onNavigate }) => 
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   <View className="flex-row gap-4">
                     {featuredTasksList.map((fTask) => (
-                      <TouchableOpacity key={fTask.id} onPress={() => onNavigate(ScreenName.TASK_DETAILS)} className="w-72 rounded-3xl overflow-hidden">
+                      <TouchableOpacity key={fTask.id} onPress={() => onNavigate(ScreenName.TASK_DETAILS)} style={{ marginRight: 16 }} className="w-72 rounded-3xl overflow-hidden">
                         <LinearGradient colors={fTask.colors} style={{ padding: 24 }}>
                           <View className="absolute top-0 right-0 opacity-10">
                             <MaterialIcons name="auto-awesome" size={100} color="white" />
@@ -201,7 +211,7 @@ export const TaskMarketplaceScreen: React.FC<ScreenProps> = ({ onNavigate }) => 
                                   <Text className="text-[10px] font-semibold text-white">{fTask.time}</Text>
                                 </View>
                               </View>
-                              <Text className="text-2xl font-bold text-white">${fTask.reward.toFixed(2)}</Text>
+                              <Text className="text-2xl font-bold text-white">${(fTask.reward || 0).toFixed(2)}</Text>
                             </View>
                           </View>
                         </LinearGradient>
@@ -234,7 +244,7 @@ export const TaskMarketplaceScreen: React.FC<ScreenProps> = ({ onNavigate }) => 
                         </View>
                       </View>
                     </View>
-                    <Text className="text-base font-bold text-primary">${task.reward.toFixed(2)}</Text>
+                    <Text className="text-base font-bold text-primary">${(task.reward || 0).toFixed(2)}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -899,7 +909,10 @@ export const TextInputTaskScreen: React.FC<ScreenProps> = ({ onNavigate, onCompl
       <View className="flex-1 bg-background-dark items-center justify-center p-8">
         <View className="w-20 h-20 rounded-full border-4 border-primary/20 border-t-primary mb-6" />
         <Text className="text-2xl font-bold text-white uppercase tracking-tight mb-2">Syncing Data</Text>
-        <Text className="text-slate-500 text-sm">Uploading contribution to decentralized node...</Text>
+        <Text className="text-slate-500 text-sm mb-6">Uploading contribution to decentralized node...</Text>
+        <TouchableOpacity onPress={() => setStatus('idle')} className="px-6 py-2 rounded-full border border-white/10 bg-white/5">
+          <Text className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Cancel Mission</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -990,28 +1003,22 @@ export const LinguasenseScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
               <MaterialIcons name="hub" size={140} color="#1349ec" />
             </View>
             <View className="relative z-10">
-              <View className="flex-row items-center gap-2 mb-4">
-                <View className="w-2 h-2 bg-primary rounded-full" />
-                <Text className="text-[10px] font-bold uppercase tracking-widest text-primary">Core Systems Active</Text>
-              </View>
+
               <Text className="text-4xl font-bold text-white uppercase tracking-tighter mb-4">Deep{'\n'}Language Lab</Text>
               <Text className="text-slate-400 text-sm mb-8 max-w-[200px]">Bridges the gap between human culture and artificial reasoning.</Text>
 
-              <View className="flex-row gap-4 border-t border-white/5 pt-6">
-                {engineStats.map((stat, i) => (
-                  <View key={i} className="flex-1">
-                    <Text className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{stat.label}</Text>
-                    <Text className="text-xs font-bold text-white uppercase">{stat.value}</Text>
-                  </View>
-                ))}
-              </View>
+
             </View>
           </LinearGradient>
         </View>
 
         {/* Categories */}
         <View className="px-6 pb-6">
-          <Text className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-6 px-4">Neural Infrastructure</Text>
+          <Text className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-6 px-4">Available Tasks</Text>
+          <View className="items-center justify-center py-10">
+            <ActivityIndicator color="#1349ec" />
+            <Text className="text-slate-500 mt-4 text-xs font-bold uppercase tracking-widest">Stay tuned task are loading...</Text>
+          </View>
           <View className="gap-4">
             {categories.map((cat) => (
               <TouchableOpacity key={cat.id} onPress={() => onNavigate(ScreenName.LANGUAGE_RUNNER)} className="p-6 rounded-3xl bg-slate-900/50 border border-white/5">

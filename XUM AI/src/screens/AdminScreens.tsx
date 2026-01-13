@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, TextInput } from 'react-native';
+import ReactNative from 'react-native';
+const { View, Text, TouchableOpacity, ScrollView, TextInput } = ReactNative;
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ScreenName } from '../types';

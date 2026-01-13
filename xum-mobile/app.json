@@ -1,0 +1,38 @@
+{
+  "name": "xum-mobile",
+  "slug": "xum-ai",
+  "version": "1.0.0",
+  "orientation": "portrait",
+  "icon": "./assets/icon.png",
+  "userInterfaceStyle": "dark",
+  "newArchEnabled": true,
+  "scheme": "xum",
+  "splash": {
+    "image": "./assets/splash-icon.png",
+    "resizeMode": "contain",
+    "backgroundColor": "#0f172a"
+  },
+  "ios": {
+    "supportsTablet": true,
+    "bundleIdentifier": "com.xumai.app"
+  },
+  "android": {
+    "adaptiveIcon": {
+      "foregroundImage": "./assets/adaptive-icon.png",
+      "backgroundColor": "#0f172a"
+    },
+    "package": "com.xumai.app"
+  },
+  "web": {
+    "favicon": "./assets/favicon.png"
+  },
+  "plugins": [
+    "expo-secure-store"
+  ],
+  "extra": {
+    "eas": {
+      "projectId": "693266df-79a0-4b7c-9fa7-c61e350c7a06"
+    }
+  },
+  "owner": "xumai"
+}

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, TextInput } from 'react-native';
+import ReactNative from 'react-native';
+const { View, Text, TouchableOpacity, ScrollView, TextInput, Dimensions } = ReactNative;
 import { MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ScreenName, Transaction, Theme, UserProfile, DashboardScreenProps } from '../types';
@@ -91,9 +92,9 @@ export const HomeScreen: React.FC<ScreenProps> = (props) => {
     <View className="flex-1 bg-white dark:bg-background-dark">
       <ScrollView className="flex-1" contentContainerStyle={{ paddingBottom: 100 }}>
         {/* Header */}
-        <View className="p-6 pt-12 bg-white/90 dark:bg-background-dark/90">
-          <Text className="text-3xl font-bold text-slate-900 dark:text-white leading-tight tracking-tighter uppercase">
-            Welcome back,{'\n'}<Text className="text-primary">{profile?.full_name?.split(' ')[0] || 'Agent'}</Text>
+        <View className="p-6 pt-14 bg-white/90 dark:bg-background-dark/90">
+          <Text style={{ fontSize: Dimensions.get('window').width < 375 ? 18 : 22, fontWeight: '600', lineHeight: Dimensions.get('window').width < 375 ? 24 : 28, letterSpacing: -0.5 }} className="text-slate-900 dark:text-white">
+            Welcome back,{' '}<Text className="text-primary font-bold">{profile?.full_name?.split(' ')[0] || 'Agent'}</Text>
           </Text>
         </View>
 
@@ -211,139 +212,11 @@ export const HomeScreen: React.FC<ScreenProps> = (props) => {
   );
 };
 
-export const WalletScreen: React.FC<ScreenProps> = (props) => {
-  const { onNavigate, balance, history } = props;
+// WalletScreen moved to src/screens/WalletScreen.tsx
 
-  return (
-    <View className="flex-1 bg-white dark:bg-background-dark">
-      <Header title="Wallet" onBack={() => onNavigate(ScreenName.HOME)} />
+// LeaderboardScreen moved to src/screens/LeaderboardScreen.tsx
 
-      <ScrollView className="flex-1 px-4" contentContainerStyle={{ paddingBottom: 100 }}>
-        {/* Balance Card */}
-        <View className="mt-6">
-          <LinearGradient colors={['#1349ec', '#4338ca']} style={{ borderRadius: 40, padding: 32, overflow: 'hidden', position: 'relative', minHeight: 260, justifyContent: 'center' }}>
-            <View className="absolute top-0 right-0 opacity-10">
-              <MaterialIcons name="account-balance-wallet" size={140} color="white" />
-            </View>
-            <View className="relative z-10">
-              <Text className="text-white/70 text-xs font-bold uppercase tracking-widest mb-2">Available Balance</Text>
-              <Text className="text-6xl font-bold text-white tracking-tighter">${balance?.toFixed(2)}</Text>
-              <View className="flex-row gap-4 mt-8">
-                <TouchableOpacity onPress={() => onNavigate(ScreenName.WITHDRAW)} className="flex-1 h-14 bg-white rounded-2xl items-center justify-center">
-                  <Text className="text-slate-900 font-bold uppercase tracking-widest text-sm">Withdraw</Text>
-                </TouchableOpacity>
-                <TouchableOpacity className="h-14 w-14 bg-white/20 rounded-2xl items-center justify-center border border-white/20">
-                  <MaterialIcons name="add" size={24} color="white" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </LinearGradient>
-        </View>
-
-        {/* Transaction History */}
-        <View className="mt-8">
-          <Text className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4 ml-2">Handshake History</Text>
-          <View className="gap-4">
-            {history?.map((item, i) => (
-              <View key={i} className="flex-row items-center justify-between p-6 rounded-3xl bg-slate-50 dark:bg-surface-dark border border-slate-100 dark:border-slate-800">
-                <View className="flex-row items-center gap-4">
-                  <View className="w-12 h-12 rounded-2xl bg-primary/10 items-center justify-center">
-                    <MaterialIcons name={iconMap[item.icon] as any || 'payments'} size={24} color="#1349ec" />
-                  </View>
-                  <View>
-                    <Text className="text-sm font-bold uppercase tracking-tight text-slate-900 dark:text-white">{item.title}</Text>
-                    <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{item.date}</Text>
-                  </View>
-                </View>
-                <Text className={`font-bold text-xl tracking-tighter ${item.type === 'withdraw' ? 'text-slate-900 dark:text-white' : 'text-emerald-500'}`}>{item.amount}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      </ScrollView>
-
-      <BottomNav currentScreen={ScreenName.WALLET} {...props} />
-    </View>
-  );
-};
-
-export const LeaderboardScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
-  const leaders = [
-    { rank: 1, name: 'Elena S.', xp: 12450, avatar: 'ES' },
-    { rank: 2, name: 'Marcus W.', xp: 11200, avatar: 'MW' },
-    { rank: 3, name: 'Sarah K.', xp: 10800, avatar: 'SK' },
-    { rank: 4, name: 'Alex R.', xp: 10450, avatar: 'AR' },
-    { rank: 5, name: 'Jin P.', xp: 9800, avatar: 'JP' },
-  ];
-
-  return (
-    <View className="flex-1 bg-white dark:bg-background-dark">
-      <Header title="Leaderboard" onBack={() => onNavigate(ScreenName.HOME)} />
-      <ScrollView className="flex-1 px-4" contentContainerStyle={{ paddingBottom: 40 }}>
-        {/* Your Rank */}
-        <View className="bg-primary/10 rounded-3xl p-8 my-6 border border-primary/20 items-center">
-          <Text className="text-xs font-bold text-primary uppercase tracking-widest mb-2">Performance Protocol</Text>
-          <Text className="text-5xl font-bold text-slate-900 dark:text-white tracking-tighter">#142</Text>
-          <Text className="text-xs text-slate-500 mt-4 font-bold uppercase tracking-widest">Global Percentile: Top 5%</Text>
-        </View>
-
-        {/* Leaders List */}
-        <Text className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4 px-2">Elite Nodes</Text>
-        <View className="gap-4">
-          {leaders.map((leader) => (
-            <View key={leader.rank} className={`flex-row items-center gap-4 p-6 rounded-3xl bg-slate-50 dark:bg-surface-dark border ${leader.rank === 4 ? 'border-primary' : 'border-slate-100 dark:border-slate-800'}`}>
-              <Text className={`w-10 text-center font-bold text-xl ${leader.rank <= 3 ? 'text-primary' : 'text-slate-400'}`}>#{leader.rank}</Text>
-              <View className="w-14 h-14 rounded-2xl bg-slate-700 items-center justify-center">
-                <Text className="text-white font-bold text-lg">{leader.avatar}</Text>
-              </View>
-              <View className="flex-1">
-                <Text className="font-bold text-slate-900 dark:text-white uppercase tracking-tight text-lg">{leader.name}</Text>
-                <Text className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{leader.xp} Accumulated XP</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      </ScrollView>
-    </View>
-  );
-};
-
-export const ProfileScreen: React.FC<ScreenProps> = ({ onNavigate, balance, profile }) => {
-  return (
-    <View className="flex-1 bg-white dark:bg-background-dark">
-      <Header title="Profile" onBack={() => onNavigate(ScreenName.HOME)} />
-      <ScrollView className="flex-1 px-4" contentContainerStyle={{ paddingBottom: 40 }}>
-        {/* Avatar */}
-        <View className="items-center py-8">
-          <View className="relative">
-            <View className="bg-slate-700 w-32 h-32 rounded-full items-center justify-center">
-              <Text className="text-white text-4xl font-bold">
-                {profile?.full_name?.split(' ').map((n: string) => n[0]).join('') || '??'}
-              </Text>
-            </View>
-            <View className="absolute bottom-1 right-1 bg-primary rounded-full w-10 h-10 items-center justify-center border-4 border-white dark:border-background-dark">
-              <Text className="text-white font-bold text-xs">L{profile?.level || 1}</Text>
-            </View>
-          </View>
-          <Text className="text-2xl font-bold text-slate-900 dark:text-white uppercase tracking-tighter mt-4">{profile?.full_name || 'Anonymous Agent'}</Text>
-          <Text className="text-slate-500 font-bold uppercase tracking-widest text-[10px] mt-1">Contributor Node #{profile?.id?.slice(-4) || '0000'}</Text>
-        </View>
-
-        {/* Stats */}
-        <View className="flex-row gap-4">
-          <View className="flex-1 bg-slate-50 dark:bg-surface-dark p-6 rounded-3xl border border-slate-100 dark:border-slate-800 items-center">
-            <Text className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Earnings</Text>
-            <Text className="text-2xl font-bold text-primary">${balance?.toFixed(2)}</Text>
-          </View>
-          <View className="flex-1 bg-slate-50 dark:bg-surface-dark p-6 rounded-3xl border border-slate-100 dark:border-slate-800 items-center">
-            <Text className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Precision</Text>
-            <Text className="text-2xl font-bold text-emerald-500">98.4%</Text>
-          </View>
-        </View>
-      </ScrollView>
-    </View>
-  );
-};
+// ProfileScreen moved to src/screens/ProfileScreen.tsx with premium redesign
 
 export const WithdrawScreen: React.FC<ScreenProps> = ({ onNavigate, balance, onConfirm }) => {
   const [amount, setAmount] = useState(String(balance || 0));
@@ -526,60 +399,7 @@ export const NotificationsScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
   );
 };
 
-export const SupportScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
-  const faqs = [
-    { q: "How are tasks accredited?", a: "Each contribution is cross-verified by 3 distinct network nodes to ensure semantic precision." },
-    { q: "When can I withdraw?", a: "Once your internal ledger reaches a minimum of $10.00 verified funds." },
-    { q: "What is RLHF?", a: "Reinforcement Learning from Human Feedback—guiding AI responses to be safer and more accurate." }
-  ];
-
-  const [expanded, setExpanded] = useState<number | null>(null);
-
-  return (
-    <View className="flex-1 bg-white dark:bg-background-dark">
-      <Header title="Support Labs" onBack={() => onNavigate(ScreenName.HOME)} />
-      <ScrollView className="flex-1 px-4" contentContainerStyle={{ paddingVertical: 24 }}>
-        {/* Contact Card */}
-        <View className="bg-primary rounded-3xl p-8 mb-8 overflow-hidden relative">
-          <View className="absolute top-0 right-0 opacity-10">
-            <MaterialIcons name="support-agent" size={100} color="white" />
-          </View>
-          <View className="relative z-10">
-            <Text className="text-2xl font-bold text-white uppercase tracking-tighter mb-2">Request Assistance</Text>
-            <Text className="text-white/80 font-bold text-sm mb-6">Our neural operators are standing by to resolve protocol interruptions.</Text>
-            <TouchableOpacity className="h-12 px-6 bg-white rounded-2xl items-center justify-center self-start">
-              <Text className="text-primary font-bold uppercase tracking-widest text-xs">Open Support Ticket</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* FAQ */}
-        <Text className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-4 px-2">Operational FAQ</Text>
-        <View className="gap-3">
-          {faqs.map((f, i) => (
-            <TouchableOpacity key={i} onPress={() => setExpanded(expanded === i ? null : i)} className="bg-slate-50 dark:bg-surface-dark rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
-              <View className="flex-row items-center justify-between p-5">
-                <Text className="text-sm font-bold uppercase tracking-tight text-slate-900 dark:text-white flex-1 pr-4">{f.q}</Text>
-                <MaterialIcons name={expanded === i ? 'expand-less' : 'expand-more'} size={24} color="#94a3b8" />
-              </View>
-              {expanded === i && (
-                <View className="px-5 pb-5 border-t border-slate-100 dark:border-slate-800">
-                  <Text className="text-sm text-slate-500 dark:text-slate-400 mt-3">{f.a}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Footer */}
-        <View className="items-center pt-8">
-          <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Protocol v4.0.2 Stable</Text>
-          <Text className="text-[10px] text-slate-300 dark:text-slate-600 uppercase font-bold tracking-widest mt-1">Decentralized Intelligence Network</Text>
-        </View>
-      </ScrollView>
-    </View>
-  );
-};
+// SupportScreen moved to src/screens/SupportScreen.tsx with premium redesign
 
 export const ReferralScreen: React.FC<ScreenProps> = ({ onNavigate }) => (
   <View className="flex-1 bg-white dark:bg-background-dark">

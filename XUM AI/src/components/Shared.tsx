@@ -215,7 +215,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
 export const Header: React.FC<{ title: string; onBack?: () => void; rightAction?: React.ReactNode; }> = ({ title, onBack, rightAction }) => {
   return (
-    <View className="w-full flex-row items-center bg-white/95 dark:bg-background-dark/95 px-4 py-4 justify-between border-b border-slate-200 dark:border-slate-800">
+    <View className="w-full flex-row items-center bg-white/95 dark:bg-background-dark/95 px-4 py-4 pt-14 justify-between border-b border-slate-200 dark:border-slate-800">
       <View className="w-12 items-start">
         {onBack && (
           <TouchableOpacity onPress={onBack} className="w-10 h-10 rounded-full items-center justify-center">

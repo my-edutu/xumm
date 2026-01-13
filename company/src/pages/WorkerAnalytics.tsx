@@ -152,33 +152,30 @@ export default function WorkerAnalytics({ onBack }: WorkerAnalyticsProps) {
             {/* Header */}
             <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold outfit flex items-center gap-3">
-                        <div className="p-2 bg-purple-500/10 rounded-xl">
-                            <Users className="text-purple-500" size={28} />
-                        </div>
-                        Workforce Analytics
+                    <h1 className="text-3xl font-black outfit text-white flex items-center gap-3 tracking-tighter">
+                        Worker Network
                     </h1>
-                    <p className="text-slate-400 mt-2">Deep insights into worker performance, retention, and geographic distribution.</p>
+                    <p className="text-slate-400 mt-2 text-sm">Monitor performance and activity across your participant pool.</p>
                 </div>
 
                 <div className="flex gap-3">
-                    <button className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-white/5 rounded-xl text-sm font-bold hover:bg-slate-700 transition-all">
+                    <button className="flex items-center gap-2 px-5 py-3 bg-white/5 border border-white/10 rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all text-slate-300">
                         <Download size={16} />
-                        Export Workers
+                        Export List
                     </button>
                     {onBack && (
                         <button
                             onClick={onBack}
-                            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-orange-900/20 hover:bg-orange-500 transition-all"
+                            className="flex items-center gap-2 px-5 py-3 bg-orange-600 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-orange-900/40 hover:bg-orange-500 transition-all"
                         >
-                            Back to Analytics
+                            Back to Dashboard
                         </button>
                     )}
                 </div>
             </header>
 
             {/* Summary Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
                 <SummaryCard
                     label="Total Workers"
                     value={totalWorkers.toLocaleString()}
@@ -201,16 +198,16 @@ export default function WorkerAnalytics({ onBack }: WorkerAnalyticsProps) {
                     trendUp
                 />
                 <SummaryCard
-                    label="Total Submissions"
+                    label="All Submissions"
                     value={`${(totalSubmissions / 1000).toFixed(1)}K`}
                     icon={<Activity className="text-orange-500" />}
                     trend="+18%"
                     trendUp
                 />
                 <SummaryCard
-                    label="Total Payouts"
+                    label="Paid Out"
                     value={`$${totalEarned.toLocaleString()}`}
-                    icon={<TrendingUp className="text-purple-500" />}
+                    icon={<TrendingUp className="text-emerald-500" />}
                     trend="+8%"
                     trendUp
                 />
@@ -488,19 +485,19 @@ function SummaryCard({ label, value, icon, trend, trendUp }: {
     trendUp?: boolean;
 }) {
     return (
-        <div className="glass-card p-4 hover:border-purple-500/30 transition-all">
-            <div className="flex justify-between items-start mb-2">
-                <div className="p-2 bg-white/5 rounded-lg">
+        <div className="glass-card p-6 hover:border-orange-500/30 transition-all group">
+            <div className="flex justify-between items-start mb-4">
+                <div className="p-2.5 bg-white/5 rounded-xl border border-white/5 group-hover:bg-white/10 transition-colors">
                     {icon}
                 </div>
-                <span className={`flex items-center gap-1 text-xs font-bold ${trendUp ? 'text-green-500' : 'text-red-500'
+                <span className={`flex items-center gap-1 text-[10px] font-black uppercase tracking-widest ${trendUp ? 'text-green-500' : 'text-red-500'
                     }`}>
-                    {trendUp ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                    {trendUp ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
                     {trend}
                 </span>
             </div>
-            <p className="text-xs text-slate-400 font-medium">{label}</p>
-            <p className="text-xl font-bold outfit mt-1">{value}</p>
+            <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">{label}</p>
+            <p className="text-3xl md:text-4xl font-black outfit text-white mt-1 break-all">{value}</p>
         </div>
     );
 }

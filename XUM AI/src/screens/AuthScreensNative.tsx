@@ -6,7 +6,8 @@
  */
 
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import {
+import ReactNative from 'react-native';
+const {
     View,
     Text,
     TouchableOpacity,
@@ -17,23 +18,65 @@ import {
     StyleSheet,
     Dimensions,
     Animated,
-    Image as RNImage,
+    Image: RNImage,
     SafeAreaView,
-} from 'react-native';
+    FlatList,
+    Modal,
+} = ReactNative;
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../context/ThemeContext';
+import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
+import { useSignIn, useSignUp, useUser, useAuth, useOAuth } from '@clerk/clerk-expo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabaseClient';
+import { useTheme } from '../context/ThemeContext';
 import { ScreenName } from '../types';
+import { sendAuthEmail } from '../utils/mailer';
+import { countries } from '../utils/countries';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// ============================================================================
+// HELPER COMPONENTS
+// ============================================================================
+
+const TypeWriterText = ({ text, style }: { text: string, style: any }) => {
+    const [displayedText, setDisplayedText] = useState('');
+    const [isTyping, setIsTyping] = useState(true);
+
+    useEffect(() => {
+        let i = 0;
+        setDisplayedText('');
+        setIsTyping(true);
+        const timer = setInterval(() => {
+            setDisplayedText(text.substring(0, i + 1));
+            i++;
+            if (i >= text.length) {
+                clearInterval(timer);
+                setIsTyping(false);
+            }
+        }, 50);
+        return () => clearInterval(timer);
+    }, [text]);
+
+    return (
+        <Text style={style}>
+            {displayedText}
+            {isTyping && <Text style={{ color: 'rgba(255,255,255,0.4)' }}>|</Text>}
+        </Text>
+    );
+};
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 interface ScreenProps {
-    onNavigate: (screen: ScreenName) => void;
+    onNavigate: (screen: ScreenName, params?: any) => void;
+    userEmail?: string;
 }
 
 // ============================================================================
@@ -45,141 +88,155 @@ interface ScreenProps {
 // ============================================================================
 
 /**
- * Logo coordinate map for particle animation
- * Particles will gather towards these points, then fade into solid text.
+ * Letter-based animation for splash screen.
+ * Characters scatter across the screen, then assemble to form "XUM AI".
  */
-const LOGO_MAP = [
-    // X
-    { x: 10, y: 30 }, { x: 15, y: 35 }, { x: 20, y: 40 }, { x: 25, y: 45 }, { x: 30, y: 50 }, { x: 35, y: 55 }, { x: 40, y: 60 },
-    { x: 40, y: 30 }, { x: 35, y: 35 }, { x: 30, y: 40 }, { x: 20, y: 50 }, { x: 15, y: 55 }, { x: 10, y: 60 },
-    // U
-    { x: 50, y: 30 }, { x: 50, y: 35 }, { x: 50, y: 40 }, { x: 50, y: 45 }, { x: 50, y: 50 }, { x: 55, y: 55 }, { x: 60, y: 60 }, { x: 65, y: 60 }, { x: 70, y: 55 }, { x: 75, y: 50 }, { x: 75, y: 45 }, { x: 75, y: 40 }, { x: 75, y: 35 }, { x: 75, y: 30 },
-    // M
-    { x: 85, y: 60 }, { x: 85, y: 55 }, { x: 85, y: 50 }, { x: 85, y: 45 }, { x: 85, y: 40 }, { x: 85, y: 35 }, { x: 85, y: 30 },
-    { x: 90, y: 35 }, { x: 95, y: 40 }, { x: 100, y: 45 }, { x: 105, y: 40 }, { x: 110, y: 35 },
-    { x: 115, y: 30 }, { x: 115, y: 35 }, { x: 115, y: 40 }, { x: 115, y: 45 }, { x: 115, y: 50 }, { x: 115, y: 55 }, { x: 115, y: 60 },
-    // A
-    { x: 135, y: 60 }, { x: 135, y: 55 }, { x: 135, y: 50 }, { x: 135, y: 45 }, { x: 140, y: 40 }, { x: 145, y: 35 }, { x: 150, y: 30 }, { x: 155, y: 35 }, { x: 160, y: 40 }, { x: 165, y: 45 }, { x: 165, y: 50 }, { x: 165, y: 55 }, { x: 165, y: 60 },
-    { x: 142, y: 48 }, { x: 148, y: 48 }, { x: 154, y: 48 }, { x: 160, y: 48 },
-    // I
-    { x: 175, y: 30 }, { x: 180, y: 30 }, { x: 185, y: 30 },
-    { x: 180, y: 35 }, { x: 180, y: 40 }, { x: 180, y: 45 }, { x: 180, y: 50 }, { x: 180, y: 55 },
-    { x: 175, y: 60 }, { x: 180, y: 60 }, { x: 185, y: 60 },
-];
+const LOGO_LETTERS = ['X', 'U', 'M', ' ', 'A', 'I'];
 
-export const SplashScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
+export const SplashScreen = ({ onNavigate }: ScreenProps) => {
     const { theme } = useTheme();
+    const { isLoaded, isSignedIn } = useUser();
+    const { userId } = useAuth();
     const [phase, setPhase] = useState<'scattered' | 'forming' | 'stable'>('scattered');
-    const logoOpacity = useRef(new Animated.Value(0)).current;
-    const logoScale = useRef(new Animated.Value(0.9)).current;
-    const particleOpacity = useRef(new Animated.Value(1)).current;
 
-    const particles = useMemo(() => {
-        return Array.from({ length: 800 }).map((_, i) => {
-            const targetPoint = LOGO_MAP[i % LOGO_MAP.length];
-            const scale = 0.28;
-            const jitterX = (Math.random() - 0.5) * 1.5;
-            const jitterY = (Math.random() - 0.5) * 1.5;
-
-            return {
-                id: i,
-                size: Math.random() * 2 + 1,
-                initialX: Math.random() * 100,
-                initialY: Math.random() * 100,
-                targetX: 50 + (targetPoint.x - 100) * scale + jitterX,
-                targetY: 48 + (targetPoint.y - 45) * scale + jitterY,
-                delay: Math.random() * 1200,
-                duration: 2200 + Math.random() * 1800,
-            };
-        });
+    // Animation values for each letter
+    const letterAnimations = useMemo(() => {
+        return LOGO_LETTERS.map(() => ({
+            translateX: new Animated.Value((Math.random() - 0.5) * SCREEN_WIDTH * 1.5),
+            translateY: new Animated.Value((Math.random() - 0.5) * SCREEN_HEIGHT * 1.2),
+            rotate: new Animated.Value((Math.random() - 0.5) * 720),
+            scale: new Animated.Value(0.3 + Math.random() * 0.5),
+            opacity: new Animated.Value(0.15 + Math.random() * 0.3),
+        }));
     }, []);
 
     useEffect(() => {
-        const timer1 = setTimeout(() => setPhase('forming'), 1200);
+        // Phase 1: Show scattered letters
+        const timer1 = setTimeout(() => {
+            setPhase('forming');
+            // Animate letters to their final positions
+            const animations = letterAnimations.map((anim, index) => {
+                const delay = index * 120;
+                return Animated.parallel([
+                    Animated.timing(anim.translateX, {
+                        toValue: 0,
+                        duration: 1800,
+                        delay,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(anim.translateY, {
+                        toValue: 0,
+                        duration: 1800,
+                        delay,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(anim.rotate, {
+                        toValue: 0,
+                        duration: 1800,
+                        delay,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(anim.scale, {
+                        toValue: 1,
+                        duration: 1800,
+                        delay,
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(anim.opacity, {
+                        toValue: 1,
+                        duration: 1200,
+                        delay,
+                        useNativeDriver: true,
+                    }),
+                ]);
+            });
+            Animated.parallel(animations).start();
+        }, 800);
+
+        // Phase 2: Stable - letters are now in place
         const timer2 = setTimeout(() => {
             setPhase('stable');
-            // Fade in logo, fade out particles
-            Animated.parallel([
-                Animated.timing(logoOpacity, {
-                    toValue: 1,
-                    duration: 800,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(logoScale, {
-                    toValue: 1,
-                    duration: 800,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(particleOpacity, {
-                    toValue: 0,
-                    duration: 800,
-                    useNativeDriver: true,
-                }),
-            ]).start();
-        }, 5200);
-        const timer3 = setTimeout(() => onNavigate(ScreenName.ONBOARDING), 8200);
+        }, 3500);
+
+        // Determine destination based on auth state and onboarding history
+        const timer3 = setTimeout(async () => {
+            if (isLoaded && isSignedIn) {
+                onNavigate(ScreenName.HOME);
+                return;
+            }
+
+            try {
+                const onboardingDone = await AsyncStorage.getItem('onboarding_completed');
+                if (onboardingDone === 'true') {
+                    onNavigate(ScreenName.AUTH);
+                } else {
+                    onNavigate(ScreenName.ONBOARDING);
+                }
+            } catch (e) {
+                onNavigate(ScreenName.ONBOARDING);
+            }
+        }, 5500);
 
         return () => {
             clearTimeout(timer1);
             clearTimeout(timer2);
             clearTimeout(timer3);
         };
-    }, [onNavigate, logoOpacity, logoScale, particleOpacity]);
+    }, [onNavigate, letterAnimations, isLoaded, isSignedIn]);
 
     return (
         <TouchableOpacity
             activeOpacity={0.9}
             style={[splashStyles.container, { backgroundColor: theme.background }]}
-            onPress={() => onNavigate(ScreenName.ONBOARDING)}
+            onPress={async () => {
+                if (isLoaded && isSignedIn) {
+                    onNavigate(ScreenName.HOME);
+                    return;
+                }
+                const onboardingDone = await AsyncStorage.getItem('onboarding_completed');
+                onNavigate(onboardingDone === 'true' ? ScreenName.AUTH : ScreenName.ONBOARDING);
+            }}
         >
             <View style={[splashStyles.background, { backgroundColor: theme.background }]} />
 
             {/* Glow Effect */}
-            <View style={splashStyles.glowContainer} pointerEvents="none">
+            <View style={[splashStyles.glowContainer, { pointerEvents: 'none' }]}>
                 <View style={[splashStyles.glowCircle, { backgroundColor: `${theme.primary}10` }]} />
             </View>
 
-            {/* Solid Logo Text */}
-            <Animated.View
-                style={[
-                    splashStyles.logoContainer,
-                    {
-                        opacity: logoOpacity,
-                        transform: [{ scale: logoScale }],
-                    },
-                ]}
-            >
-                <Text style={[splashStyles.logoText, { color: theme.text }]}>XUM AI</Text>
-            </Animated.View>
+            {/* Animated Letters */}
+            <View style={splashStyles.letterContainer}>
+                {LOGO_LETTERS.map((letter, index) => {
+                    const anim = letterAnimations[index];
+                    const rotateInterpolate = anim.rotate.interpolate({
+                        inputRange: [-360, 360],
+                        outputRange: ['-360deg', '360deg'],
+                    });
 
-            {/* Particle Animation */}
-            <Animated.View
-                style={[splashStyles.particleContainer, { opacity: particleOpacity }]}
-                pointerEvents="none"
-            >
-                {particles.map((p) => {
-                    const isTarget = phase !== 'scattered';
                     return (
-                        <View
-                            key={p.id}
+                        <Animated.Text
+                            key={index}
                             style={[
-                                splashStyles.particle,
+                                splashStyles.logoLetter,
                                 {
-                                    width: p.size,
-                                    height: p.size,
-                                    left: `${isTarget ? p.targetX : p.initialX}%`,
-                                    top: `${isTarget ? p.targetY : p.initialY}%`,
-                                    opacity: phase === 'forming' ? 0.6 : 0.35,
-                                    transform: [{ scale: phase === 'forming' ? 1.1 : 1 }],
-                                    backgroundColor: theme.text,
+                                    color: theme.text,
+                                    opacity: anim.opacity,
+                                    transform: [
+                                        { translateX: anim.translateX },
+                                        { translateY: anim.translateY },
+                                        { rotate: rotateInterpolate },
+                                        { scale: anim.scale },
+                                    ],
                                 },
                             ]}
-                        />
+                        >
+                            {letter}
+                        </Animated.Text>
                     );
                 })}
-            </Animated.View>
+            </View>
 
-            <View style={splashStyles.overlay} pointerEvents="none" />
+            <View style={[splashStyles.overlay, { pointerEvents: 'none' }]} />
         </TouchableOpacity>
     );
 };
@@ -219,31 +276,33 @@ const splashStyles = StyleSheet.create({
         backgroundColor: 'rgba(255, 255, 255, 0.05)',
         borderRadius: 9999,
     },
-    logoContainer: {
-        position: 'relative',
+    letterContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
         zIndex: 30,
     },
-    logoText: {
+    logoLetter: {
         fontSize: 48,
         fontWeight: '900',
         letterSpacing: -2,
         textTransform: 'uppercase',
         textAlign: 'center',
-        textShadowColor: 'rgba(0, 0, 0, 0.3)',
-        textShadowOffset: { width: 0, height: 2 },
-        textShadowRadius: 10,
-    },
-    particleContainer: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        zIndex: 20,
-    },
-    particle: {
-        position: 'absolute',
-        borderRadius: 9999,
+        ...Platform.select({
+            ios: {
+                textShadowColor: 'rgba(0, 0, 0, 0.3)',
+                textShadowOffset: { width: 0, height: 2 },
+                textShadowRadius: 10,
+            },
+            android: {
+                textShadowColor: 'rgba(0, 0, 0, 0.3)',
+                textShadowOffset: { width: 0, height: 2 },
+                textShadowRadius: 10,
+            },
+            web: {
+                textShadow: '0px 2px 10px rgba(0, 0, 0, 0.3)',
+            }
+        }),
     },
     overlay: {
         position: 'absolute',
@@ -276,7 +335,7 @@ interface OnboardingSlide {
     }>;
 }
 
-export const OnboardingScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
+export const OnboardingScreen = ({ onNavigate }: ScreenProps) => {
     const { theme } = useTheme();
     const [step, setStep] = useState(0);
     const [agreed, setAgreed] = useState(false);
@@ -325,10 +384,11 @@ export const OnboardingScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
         },
     ];
 
-    const nextStep = () => {
+    const nextStep = async () => {
         if (step < slides.length - 1) {
             setStep(step + 1);
         } else if (agreed) {
+            await AsyncStorage.setItem('onboarding_completed', 'true');
             onNavigate(ScreenName.AUTH);
         }
     };
@@ -542,6 +602,80 @@ const onboardingStyles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
+    methodText: {
+        fontSize: 10,
+        fontWeight: '900',
+        color: 'rgba(255, 255, 255, 0.4)',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+    },
+    pendingContent: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 30,
+    },
+    pendingIconContainer: {
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 30,
+    },
+    pendingTitle: {
+        fontSize: 24,
+        fontWeight: '900',
+        color: 'white',
+        letterSpacing: 2,
+        marginBottom: 10,
+        textAlign: 'center',
+    },
+    pendingSubtitle: {
+        fontSize: 14,
+        color: 'rgba(255,255,255,0.6)',
+        textAlign: 'center',
+        lineHeight: 22,
+        marginBottom: 40,
+    },
+    pendingCard: {
+        width: '100%',
+        padding: 24,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.1)',
+        marginBottom: 40,
+    },
+    pendingInstruction: {
+        color: 'white',
+        fontSize: 13,
+        lineHeight: 24,
+        fontWeight: '500',
+    },
+    pendingBtn: {
+        width: '100%',
+        height: 60,
+        borderRadius: 15,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 20,
+    },
+    pendingBtnText: {
+        fontWeight: '900',
+        fontSize: 14,
+        letterSpacing: 1,
+    },
+    resendLink: {
+        padding: 10,
+    },
+    resendLinkText: {
+        color: 'rgba(255,255,255,0.4)',
+        fontSize: 10,
+        fontWeight: '900',
+        letterSpacing: 1,
+    },
     iconLabel: {
         fontSize: 10,
         fontWeight: '600',
@@ -626,27 +760,207 @@ const onboardingStyles = StyleSheet.create({
 // AUTH SCREEN (Login / Sign Up)
 // ============================================================================
 
-export const AuthScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
+export const AuthScreen = ({ onNavigate }: ScreenProps) => {
     const { theme } = useTheme();
     const [mode, setMode] = useState<'Login' | 'SignUp'>('Login');
+    const [showEmailForm, setShowEmailForm] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
+    const [phoneNumber, setPhoneNumber] = useState('');
+    const [country, setCountry] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [verificationPending, setVerificationPending] = useState(false);
+    const [isCountryModalVisible, setIsCountryModalVisible] = useState(false);
+    const [countrySearch, setCountrySearch] = useState('');
+
+    // Clerk hooks
+    const { signIn, setActive: setSignInActive, isLoaded: signInLoaded } = useSignIn();
+    const { signUp, isLoaded: signUpLoaded } = useSignUp();
+
+    // OAuth hooks for social sign-in
+    const { startOAuthFlow: startGoogleOAuth } = useOAuth({ strategy: 'oauth_google' });
+    const { startOAuthFlow: startAppleOAuth } = useOAuth({ strategy: 'oauth_apple' });
+
+    const filteredCountries = useMemo(() => {
+        return countries.filter((c: any) =>
+            c.name.toLowerCase().includes(countrySearch.toLowerCase()) ||
+            c.code.toLowerCase().includes(countrySearch.toLowerCase())
+        );
+    }, [countrySearch]);
+
+    const handleResendEmail = async () => {
+        if (!signUpLoaded || !email) return;
+        setLoading(true);
+        try {
+            await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+            alert('Verification code resent!');
+        } catch (err: any) {
+            alert(err.errors?.[0]?.message || 'Failed to resend');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGoogleLogin = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const { createdSessionId, setActive } = await startGoogleOAuth({
+                redirectUrl: Linking.createURL('/oauth-callback', { scheme: 'xum' })
+            });
+
+            if (createdSessionId && setActive) {
+                await setActive({ session: createdSessionId });
+                // Navigation handled by App component effect
+            }
+        } catch (err: any) {
+            console.error('Google OAuth error:', err);
+            setError(err.errors?.[0]?.message || 'Google sign-in failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAppleLogin = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const { createdSessionId, setActive } = await startAppleOAuth({
+                redirectUrl: Linking.createURL('/oauth-callback', { scheme: 'xum' })
+            });
+
+            if (createdSessionId && setActive) {
+                await setActive({ session: createdSessionId });
+                // Navigation handled by App component effect
+            }
+        } catch (err: any) {
+            console.error('Apple OAuth error:', err);
+            setError(err.errors?.[0]?.message || 'Apple sign-in failed');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleSubmit = async () => {
+        if (!email.trim() || (mode === 'SignUp' && (!firstName.trim() || !lastName.trim()))) {
+            setError('Please fill in all required fields');
+            return;
+        }
+        if (!password.trim()) {
+            setError('Password is required');
+            return;
+        }
+        if (mode === 'SignUp' && password !== confirmPassword) {
+            setError('Passwords do not match');
+            return;
+        }
+
         setLoading(true);
         setError(null);
 
-        // Simulation delay for premium feel
-        setTimeout(() => {
+        try {
+            if (mode === 'SignUp') {
+                if (!signUpLoaded) return;
+
+                await signUp.create({
+                    emailAddress: email,
+                    password,
+                    firstName: firstName,
+                    lastName: lastName,
+                });
+
+                // Send verification code
+                await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+                onNavigate(ScreenName.OTP_VERIFICATION, { email });
+            } else {
+                if (!signInLoaded) return;
+
+                const result = await signIn.create({
+                    identifier: email,
+                    password,
+                });
+
+                if (result.status === 'complete') {
+                    await setSignInActive({ session: result.createdSessionId });
+                } else {
+                    setError('Additional verification required or account not found.');
+                }
+            }
+        } catch (err: any) {
+            console.error('[ClerkAuth] Error:', JSON.stringify(err, null, 2));
+            setError(err.errors?.[0]?.message || 'Authentication failed');
+        } finally {
             setLoading(false);
-            onNavigate(ScreenName.HOME);
-        }, 1500);
+        }
     };
+
+    if (verificationPending) {
+        return (
+            <View style={[authStyles.container, { backgroundColor: theme.background }]}>
+                {/* Visual Header Background (Textured Design) */}
+                <View style={[authStyles.visualHeader, { backgroundColor: theme.primaryDark, height: 280, position: 'relative', overflow: 'hidden' }]}>
+                    <View style={[authStyles.blob, { backgroundColor: theme.accent, top: -40, right: -40, opacity: 0.6, transform: [{ rotate: '15deg' }] }]} />
+                    <View style={[authStyles.blob, { backgroundColor: theme.primary, bottom: -60, left: -60, opacity: 0.4, transform: [{ rotate: '-10deg' }] }]} />
+
+                    <SafeAreaView style={authStyles.headerSafeArea}>
+                        <TouchableOpacity style={authStyles.miniBackButton} onPress={() => setVerificationPending(false)}>
+                            <MaterialIcons name="arrow-back" size={24} color="white" />
+                        </TouchableOpacity>
+                        <View style={{ marginTop: 'auto', marginBottom: 60, paddingHorizontal: 20 }}>
+                            <TypeWriterText
+                                text="Confirm your email"
+                                style={authStyles.mainTitle}
+                            />
+                        </View>
+                    </SafeAreaView>
+                </View>
+
+                {/* Main Content Card */}
+                <View style={[authStyles.card, { backgroundColor: theme.surface, marginTop: -40, flex: 1, borderTopLeftRadius: 40, borderTopRightRadius: 40, paddingHorizontal: 32 }]}>
+                    <View style={authStyles.pendingContent}>
+                        <View style={[authStyles.pendingIconContainer, { backgroundColor: `${theme.primary}15`, marginTop: 32 }]}>
+                            <MaterialIcons name="mark-email-unread" size={60} color={theme.primary} />
+                        </View>
+                        <Text style={[authStyles.pendingTitle, { color: theme.text }]}>CHECK YOUR INBOX</Text>
+                        <Text style={[authStyles.pendingSubtitle, { color: theme.textSecondary }]}>
+                            We've sent a confirmation link to:{"\n"}
+                            <Text style={{ color: theme.primary, fontWeight: 'bold' }}>{email}</Text>
+                        </Text>
+
+                        <View style={[authStyles.pendingCard, { backgroundColor: theme.background, borderColor: theme.border }]}>
+                            <Text style={[authStyles.pendingInstruction, { color: theme.text }]}>
+                                1. Open your email app{"\n"}
+                                2. Click the confirmation link in the email{"\n"}
+                                3. Return here to start earning
+                            </Text>
+                        </View>
+
+                        <TouchableOpacity
+                            style={[authStyles.primaryButton, { backgroundColor: theme.primary, width: '100%', marginTop: 32 }]}
+                            onPress={() => setVerificationPending(false)}
+                        >
+                            <Text style={authStyles.primaryButtonText}>BACK TO LOGIN</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={authStyles.resendLink}
+                            onPress={handleResendEmail}
+                            disabled={loading}
+                        >
+                            <Text style={[authStyles.resendLinkText, { color: theme.primary }]}>
+                                {loading ? 'SENDING...' : "DIDN'T GET THE EMAIL? RESEND"}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </View>
+        );
+    }
 
     return (
         <KeyboardAvoidingView
@@ -655,7 +969,7 @@ export const AuthScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
         >
             <ScrollView contentContainerStyle={{ flexGrow: 1 }} bounces={false} keyboardShouldPersistTaps="handled">
                 {/* Visual Header Background (Textured Design) */}
-                <View style={[authStyles.visualHeader, { backgroundColor: theme.primaryDark }]}>
+                <View style={[authStyles.visualHeader, { backgroundColor: theme.primaryDark, height: SCREEN_HEIGHT * 0.35 }]}>
                     <View style={[authStyles.blob, { backgroundColor: theme.accent, top: -40, right: -40, opacity: 0.6, transform: [{ rotate: '15deg' }] }]} />
                     <View style={[authStyles.blob, { backgroundColor: theme.primary, bottom: -60, left: -60, opacity: 0.4, transform: [{ rotate: '-10deg' }] }]} />
                     <View style={[authStyles.blob, { backgroundColor: theme.success, top: 40, left: -80, opacity: 0.3, width: 220, height: 220 }]} />
@@ -664,114 +978,277 @@ export const AuthScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
                         <TouchableOpacity style={authStyles.miniBackButton} onPress={() => onNavigate(ScreenName.ONBOARDING)}>
                             <MaterialIcons name="arrow-back" size={24} color="white" />
                         </TouchableOpacity>
-                        <Text style={authStyles.mainTitle}>
-                            {mode === 'Login' ? 'Welcome\nback' : 'Create an\naccount'}
-                        </Text>
+                        <View style={{ marginTop: 'auto', marginBottom: 60, paddingHorizontal: 20 }}>
+                            <TypeWriterText
+                                text={mode === 'Login' ? 'Welcome back' : 'Create an account'}
+                                style={authStyles.mainTitle}
+                            />
+                        </View>
                     </SafeAreaView>
                 </View>
 
                 {/* Main Auth Card */}
-                <View style={[authStyles.card, { backgroundColor: theme.surface }]}>
-                    {/* Social Login Section */}
-                    <TouchableOpacity style={[authStyles.socialButton, { borderColor: theme.border }]} activeOpacity={0.7}>
-                        <RNImage
-                            source={{ uri: 'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg' }}
-                            style={authStyles.socialIcon}
-                            resizeMode="contain"
-                        />
-                        <Text style={[authStyles.socialButtonText, { color: theme.text }]}>Sign in with Google</Text>
-                    </TouchableOpacity>
-
-                    <View style={authStyles.dividerContainer}>
-                        <View style={[authStyles.dividerLine, { backgroundColor: theme.border }]} />
-                        <Text style={[authStyles.dividerText, { color: theme.textSecondary }]}>or</Text>
-                        <View style={[authStyles.dividerLine, { backgroundColor: theme.border }]} />
-                    </View>
-
-                    {/* Email/Password Form */}
-                    <View style={authStyles.formFields}>
-                        {mode === 'SignUp' && (
-                            <View style={authStyles.rowFields}>
-                                <TextInput
-                                    style={[authStyles.inputHalf, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                                    placeholder="First Name"
-                                    placeholderTextColor={theme.textSecondary}
-                                    value={firstName}
-                                    onChangeText={setFirstName}
-                                />
-                                <TextInput
-                                    style={[authStyles.inputHalf, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                                    placeholder="Last Name"
-                                    placeholderTextColor={theme.textSecondary}
-                                    value={lastName}
-                                    onChangeText={setLastName}
-                                />
-                            </View>
-                        )}
-
-                        <TextInput
-                            style={[authStyles.inputFull, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                            placeholder="Email"
-                            placeholderTextColor={theme.textSecondary}
-                            autoCapitalize="none"
-                            keyboardType="email-address"
-                            value={email}
-                            onChangeText={setEmail}
-                        />
-
-                        <View style={authStyles.passwordWrapper}>
-                            <TextInput
-                                style={[authStyles.inputFull, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border }]}
-                                placeholder="Password"
-                                placeholderTextColor={theme.textSecondary}
-                                secureTextEntry={!showPassword}
-                                value={password}
-                                onChangeText={setPassword}
-                            />
+                <View style={[authStyles.card, {
+                    backgroundColor: theme.surface,
+                    marginTop: -50,
+                    borderTopLeftRadius: 40,
+                    borderTopRightRadius: 40,
+                    paddingHorizontal: SCREEN_WIDTH * 0.08,
+                    paddingTop: 40,
+                    paddingBottom: 60,
+                    flex: 1
+                }]}>
+                    {/* Two-Step Auth Flow */}
+                    {!showEmailForm ? (
+                        <>
+                            {/* Initial Options: Google + Apple + Email buttons */}
                             <TouchableOpacity
-                                onPress={() => setShowPassword(!showPassword)}
-                                style={authStyles.eyeIcon}
+                                style={[authStyles.socialButton, { backgroundColor: '#FFFFFF', borderColor: '#E5E7EB' }]}
+                                activeOpacity={0.7}
+                                onPress={handleGoogleLogin}
+                                disabled={loading}
                             >
-                                <MaterialIcons
-                                    name={showPassword ? 'visibility-off' : 'visibility'}
-                                    size={20}
-                                    color={theme.textSecondary}
-                                />
-                            </TouchableOpacity>
-                        </View>
-
-                        {error && <Text style={authStyles.errorTextSmall}>{error}</Text>}
-
-                        <TouchableOpacity
-                            style={[authStyles.primaryButton, { backgroundColor: theme.primary }]}
-                            onPress={handleSubmit}
-                            disabled={loading}
-                        >
-                            <Text style={authStyles.primaryButtonText}>
-                                {loading ? 'PLEASE WAIT...' : mode === 'Login' ? 'Login' : 'Create account'}
-                            </Text>
-                        </TouchableOpacity>
-
-                        <Text style={[authStyles.termsText, { color: theme.textSecondary }]}>
-                            By continuing, you agree to our{' '}
-                            <Text style={[authStyles.linkText, { color: theme.primary }]}>Privacy Policy</Text> and{' '}
-                            <Text style={[authStyles.linkText, { color: theme.primary }]}>Terms of Service</Text>.
-                        </Text>
-
-                        <View style={authStyles.footer}>
-                            <Text style={[authStyles.footerText, { color: theme.textSecondary }]}>
-                                {mode === 'Login' ? "Don't have an account? " : "Have an account? "}
-                            </Text>
-                            <TouchableOpacity onPress={() => setMode(mode === 'Login' ? 'SignUp' : 'Login')}>
-                                <Text style={[authStyles.footerLink, { color: theme.primary }]}>
-                                    {mode === 'Login' ? 'Sign up here' : 'Log in here'}
+                                <View style={{ width: 24, height: 24, marginRight: 12, alignItems: 'center', justifyContent: 'center' }}>
+                                    <RNImage
+                                        source={{ uri: 'https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg' }}
+                                        style={{ width: 24, height: 24 }}
+                                        resizeMode="contain"
+                                    />
+                                </View>
+                                <Text style={[authStyles.socialButtonText, { color: '#1F2937' }]}>
+                                    {loading ? 'WAITING...' : mode === 'Login' ? 'Sign in with Google' : 'Sign up with Google'}
                                 </Text>
                             </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={[authStyles.socialButton, { backgroundColor: '#000000', borderColor: '#000000', marginTop: 16 }]}
+                                activeOpacity={0.7}
+                                onPress={handleAppleLogin}
+                                disabled={loading}
+                            >
+                                <MaterialIcons name="apple" size={24} color="#fff" style={{ marginRight: 12 }} />
+                                <Text style={[authStyles.socialButtonText, { color: '#fff' }]}>
+                                    {loading ? 'WAITING...' : mode === 'Login' ? 'Sign in with Apple' : 'Sign up with Apple'}
+                                </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[authStyles.socialButton, { backgroundColor: theme.primary, borderColor: theme.primary, marginTop: 16 }]}
+                                activeOpacity={0.7}
+                                onPress={() => setShowEmailForm(true)}
+                            >
+                                <MaterialIcons name="email" size={24} color="#fff" style={{ marginRight: 12 }} />
+                                <Text style={[authStyles.socialButtonText, { color: '#fff' }]}>
+                                    {mode === 'Login' ? 'Sign in with Email' : 'Sign up with Email'}
+                                </Text>
+                            </TouchableOpacity>
+
+                            <View style={authStyles.dividerContainer}>
+                                <View style={[authStyles.dividerLine, { backgroundColor: theme.border }]} />
+                                <Text style={[authStyles.dividerText, { color: theme.textSecondary }]}>or</Text>
+                                <View style={[authStyles.dividerLine, { backgroundColor: theme.border }]} />
+                            </View>
+
+                            {/* Switch Mode Link */}
+                            <TouchableOpacity onPress={() => setMode(mode === 'Login' ? 'SignUp' : 'Login')}>
+                                <Text style={{ color: theme.textSecondary, textAlign: 'center', fontSize: 14 }}>
+                                    {mode === 'Login' ? "Don't have an account? " : "Already have an account? "}
+                                    <Text style={{ color: theme.primary, fontWeight: '600' }}>
+                                        {mode === 'Login' ? 'Sign Up' : 'Sign In'}
+                                    </Text>
+                                </Text>
+                            </TouchableOpacity>
+                        </>
+                    ) : (
+                        <>
+                            {/* Email Form (Step 2) */}
+                            <TouchableOpacity
+                                style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}
+                                onPress={() => setShowEmailForm(false)}
+                            >
+                                <MaterialIcons name="arrow-back" size={20} color={theme.primary} />
+                                <Text style={{ color: theme.primary, marginLeft: 8, fontWeight: '600' }}>Back to options</Text>
+                            </TouchableOpacity>
+
+                            {/* Email/Password Form */}
+                            <View style={authStyles.formFields}>
+                                {mode === 'SignUp' && (
+                                    <>
+                                        <TextInput
+                                            style={[authStyles.inputFull, { backgroundColor: '#1A1A24', color: theme.text, borderColor: theme.border, marginBottom: 16 }]}
+                                            placeholder="First Name"
+                                            placeholderTextColor={theme.textSecondary}
+                                            value={firstName}
+                                            onChangeText={setFirstName}
+                                        />
+                                        <TextInput
+                                            style={[authStyles.inputFull, { backgroundColor: '#1A1A24', color: theme.text, borderColor: theme.border, marginBottom: 16 }]}
+                                            placeholder="Last Name"
+                                            placeholderTextColor={theme.textSecondary}
+                                            value={lastName}
+                                            onChangeText={setLastName}
+                                        />
+                                    </>
+                                )}
+
+                                <TextInput
+                                    style={[authStyles.inputFull, { backgroundColor: '#1A1A24', color: theme.text, borderColor: theme.border, marginBottom: 16 }]}
+                                    placeholder="Email"
+                                    placeholderTextColor={theme.textSecondary}
+                                    autoCapitalize="none"
+                                    keyboardType="email-address"
+                                    value={email}
+                                    onChangeText={setEmail}
+                                />
+
+                                {mode === 'SignUp' && (
+                                    <>
+                                        <TextInput
+                                            style={[authStyles.inputFull, { backgroundColor: '#1A1A24', color: theme.text, borderColor: theme.border, marginBottom: 16 }]}
+                                            placeholder="Phone"
+                                            placeholderTextColor={theme.textSecondary}
+                                            keyboardType="phone-pad"
+                                            value={phoneNumber}
+                                            onChangeText={setPhoneNumber}
+                                        />
+                                        <TouchableOpacity
+                                            style={[authStyles.inputFull, { backgroundColor: '#1A1A24', color: theme.text, borderColor: theme.border, justifyContent: 'center', marginBottom: 16 }]}
+                                            onPress={() => setIsCountryModalVisible(true)}
+                                        >
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4 }}>
+                                                <Text style={{ color: country ? theme.text : theme.textSecondary, fontSize: 13, fontWeight: '500', flexShrink: 1 }} numberOfLines={1}>
+                                                    {country ? countries.find(c => c.name === country)?.flag + ' ' + country : 'Country'}
+                                                </Text>
+                                            </View>
+                                        </TouchableOpacity>
+                                    </>
+                                )}
+
+                                <View style={authStyles.passwordWrapper}>
+                                    <TextInput
+                                        style={[authStyles.inputFull, { backgroundColor: '#1A1A24', color: theme.text, borderColor: theme.border, marginBottom: mode === 'SignUp' ? 16 : 0 }]}
+                                        placeholder="Password"
+                                        placeholderTextColor={theme.textSecondary}
+                                        secureTextEntry={!showPassword}
+                                        value={password}
+                                        onChangeText={setPassword}
+                                    />
+                                    <TouchableOpacity
+                                        onPress={() => setShowPassword(!showPassword)}
+                                        style={[authStyles.eyeIcon, { top: mode === 'SignUp' ? 18 : 18 }]}
+                                    >
+                                        <MaterialIcons
+                                            name={showPassword ? 'visibility-off' : 'visibility'}
+                                            size={20}
+                                            color={theme.textSecondary}
+                                        />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {mode === 'SignUp' && (
+                                    <View style={authStyles.passwordWrapper}>
+                                        <TextInput
+                                            style={[authStyles.inputFull, { backgroundColor: '#1A1A24', color: theme.text, borderColor: theme.border }]}
+                                            placeholder="Confirm Password"
+                                            placeholderTextColor={theme.textSecondary}
+                                            secureTextEntry={!showPassword}
+                                            value={confirmPassword}
+                                            onChangeText={setConfirmPassword}
+                                        />
+                                    </View>
+                                )}
+
+                                {error && <Text style={authStyles.errorTextSmall}>{error}</Text>}
+
+                                <TouchableOpacity
+                                    style={[authStyles.primaryButton, { backgroundColor: theme.primary, marginTop: 24 }]}
+                                    onPress={handleSubmit}
+                                    disabled={loading}
+                                >
+                                    <Text style={authStyles.primaryButtonText}>
+                                        {loading ? 'PLEASE WAIT...' : mode === 'Login' ? 'Login' : 'Create account'}
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <Text style={[authStyles.termsText, { color: theme.textSecondary, marginTop: 24 }]}>
+                                    By continuing, you agree to our{' '}
+                                    <Text style={[authStyles.linkText, { color: theme.primary }]}>Privacy Policy</Text> and{' '}
+                                    <Text style={[authStyles.linkText, { color: theme.primary }]}>Terms of Service</Text>.
+                                </Text>
+
+                                <View style={[authStyles.footer, { marginTop: 32 }]}>
+                                    <Text style={[authStyles.footerText, { color: theme.textSecondary }]}>
+                                        {mode === 'Login' ? "Don't have an account? " : "Have an account? "}
+                                    </Text>
+                                    <TouchableOpacity onPress={() => setMode(mode === 'Login' ? 'SignUp' : 'Login')}>
+                                        <Text style={[authStyles.footerLink, { color: theme.primary }]}>
+                                            {mode === 'Login' ? 'Sign up here' : 'Log in here'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </>
+                    )}
+                </View>
+
+                {/* Country Picker Modal */}
+                <Modal
+                    visible={isCountryModalVisible}
+                    animationType="slide"
+                    transparent={true}
+                    onRequestClose={() => setIsCountryModalVisible(false)}
+                >
+                    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' }}>
+                        <View style={{ height: '80%', backgroundColor: theme.surface, borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                                <Text style={{ fontSize: 20, fontWeight: '800', color: theme.text }}>Select Country</Text>
+                                <TouchableOpacity onPress={() => setIsCountryModalVisible(false)}>
+                                    <MaterialIcons name="close" size={24} color={theme.text} />
+                                </TouchableOpacity>
+                            </View>
+
+                            <TextInput
+                                style={{
+                                    height: 50,
+                                    backgroundColor: theme.background,
+                                    borderRadius: 12,
+                                    paddingHorizontal: 16,
+                                    color: theme.text,
+                                    marginBottom: 16
+                                }}
+                                placeholder="Search countries..."
+                                placeholderTextColor={theme.textSecondary}
+                                value={countrySearch}
+                                onChangeText={setCountrySearch}
+                            />
+
+                            <FlatList
+                                data={filteredCountries}
+                                keyExtractor={(item: any) => item.code}
+                                renderItem={({ item }: { item: any }) => (
+                                    <TouchableOpacity
+                                        style={{
+                                            paddingVertical: 16,
+                                            borderBottomWidth: 1,
+                                            borderBottomColor: theme.border,
+                                            flexDirection: 'row',
+                                            alignItems: 'center'
+                                        }}
+                                        onPress={() => {
+                                            setCountry(item.name);
+                                            setIsCountryModalVisible(false);
+                                            setCountrySearch('');
+                                        }}
+                                    >
+                                        <Text style={{ fontSize: 24, marginRight: 12 }}>{item.flag}</Text>
+                                        <Text style={{ fontSize: 16, color: theme.text, fontWeight: '500' }}>{item.name}</Text>
+                                    </TouchableOpacity>
+                                )}
+                            />
                         </View>
                     </View>
-                </View>
-            </ScrollView>
-        </KeyboardAvoidingView>
+                </Modal>
+            </ScrollView >
+        </KeyboardAvoidingView >
     );
 };
 
@@ -791,10 +1268,10 @@ const authStyles = StyleSheet.create({
         borderRadius: 150,
     },
     mainTitle: {
-        fontSize: 42,
+        fontSize: SCREEN_WIDTH < 375 ? 28 : 42,
         fontWeight: '900',
         color: 'white',
-        lineHeight: 46,
+        lineHeight: SCREEN_WIDTH < 375 ? 34 : 46,
         letterSpacing: -1,
     },
     headerSafeArea: {
@@ -828,7 +1305,6 @@ const authStyles = StyleSheet.create({
         borderRadius: 28,
         borderWidth: 1,
         paddingHorizontal: 16,
-        marginBottom: 24,
     },
     socialIcon: {
         width: 24,
@@ -858,8 +1334,8 @@ const authStyles = StyleSheet.create({
     },
     rowFields: {
         flexDirection: 'row',
-        gap: 12,
-        marginBottom: 4,
+        gap: 8,
+        width: '100%',
     },
     inputHalf: {
         flex: 1,
@@ -900,17 +1376,72 @@ const authStyles = StyleSheet.create({
         borderRadius: 28,
         alignItems: 'center',
         justifyContent: 'center',
-        marginTop: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 10,
-        elevation: 5,
+        marginTop: 16,
+        ...Platform.select({
+            web: {
+                boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.2)',
+            },
+            default: {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.2,
+                shadowRadius: 8,
+                elevation: 4,
+            }
+        }),
     },
     primaryButtonText: {
         color: 'white',
         fontSize: 16,
+        fontWeight: '700',
+        letterSpacing: 0.5,
+    },
+    pendingContent: {
+        alignItems: 'center',
+        paddingTop: 10,
+    },
+    pendingIconContainer: {
+        width: 100,
+        height: 100,
+        borderRadius: 50,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 24,
+    },
+    pendingTitle: {
+        fontSize: 22,
+        fontWeight: '900',
+        letterSpacing: 1,
+        marginBottom: 8,
+        textAlign: 'center',
+    },
+    pendingSubtitle: {
+        fontSize: 14,
+        textAlign: 'center',
+        lineHeight: 22,
+        marginBottom: 32,
+    },
+    pendingCard: {
+        width: '100%',
+        padding: 20,
+        borderRadius: 16,
+        borderWidth: 1,
+        marginBottom: 40,
+    },
+    pendingInstruction: {
+        fontSize: 13,
+        lineHeight: 24,
+        fontWeight: '500',
+    },
+    resendLink: {
+        marginTop: 24,
+        padding: 10,
+    },
+    resendLinkText: {
+        fontSize: 12,
         fontWeight: '800',
+        letterSpacing: 1,
+        textTransform: 'uppercase',
     },
     termsText: {
         fontSize: 13,
@@ -943,18 +1474,30 @@ const authStyles = StyleSheet.create({
 // FORGOT PASSWORD SCREEN
 // ============================================================================
 
-export const ForgotPasswordScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
+export const ForgotPasswordScreen = ({ onNavigate }: ScreenProps) => {
     const { theme } = useTheme();
     const [email, setEmail] = useState('');
     const [loading, setLoading] = useState(false);
 
     const handleSubmit = async () => {
+        if (!email.trim()) {
+            alert('Please enter your email');
+            return;
+        }
+
         setLoading(true);
-        // Simulation delay
-        setTimeout(() => {
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                redirectTo: Platform.OS === 'web' ? window.location.origin : 'xum://auth-callback',
+            });
+            if (error) throw error;
+            alert('Password reset link sent! Please check your inbox.');
+            onNavigate(ScreenName.AUTH);
+        } catch (err: any) {
+            alert(err.message || 'Failed to send recovery email');
+        } finally {
             setLoading(false);
-            onNavigate(ScreenName.OTP_VERIFICATION);
-        }, 1200);
+        }
     };
 
     return (
@@ -979,7 +1522,7 @@ export const ForgotPasswordScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
             {/* Content */}
             <View style={forgotStyles.content}>
                 <Text style={[forgotStyles.description, { color: `${theme.text}99` }]}>
-                    Forgot your password? Enter your email below and we'll send a 4-digit verification code to your terminal.
+                    Forgot your password? Enter your email below and we'll send a secure password reset link to your terminal.
                 </Text>
 
                 <View style={forgotStyles.fieldContainer}>
@@ -1119,11 +1662,17 @@ const forgotStyles = StyleSheet.create({
 // OTP VERIFICATION SCREEN
 // ============================================================================
 
-export const OTPScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
+
+
+export const OTPScreen = ({ onNavigate, userEmail }: ScreenProps) => {
     const { theme } = useTheme();
-    const [otp, setOtp] = useState(['', '', '', '']);
+    const [otp, setOtp] = useState(['', '', '', '', '', '']);
     const [countdown, setCountdown] = useState(59);
-    const inputRefs = useRef<Array<TextInput | null>>([]);
+    const [error, setError] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
+    const inputRefs = useRef<Array<any | null>>([]);
+
+    const { signUp, isLoaded: signUpLoaded, setActive: setSignUpActive } = useSignUp();
 
     useEffect(() => {
         const timer = setInterval(() => {
@@ -1139,7 +1688,7 @@ export const OTPScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
         newOtp[index] = val.slice(-1);
         setOtp(newOtp);
 
-        if (val && index < 3) {
+        if (val && index < 5) {
             inputRefs.current[index + 1]?.focus();
         }
     };
@@ -1150,24 +1699,46 @@ export const OTPScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
         }
     };
 
-    const handleVerify = () => {
+    const handleVerify = async () => {
         const code = otp.join('');
-        if (code.length !== 4) {
-            alert('Please enter the complete 4-digit code');
+        if (code.length !== 6) {
+            alert('Please enter the complete 6-digit code');
             return;
         }
 
-        // Simulation delay for consistency
-        setTimeout(() => {
-            onNavigate(ScreenName.HOME);
-        }, 1000);
+        if (!signUpLoaded) return;
+
+        setLoading(true);
+        setError(null);
+
+        try {
+            const completeSignUp = await signUp.attemptEmailAddressVerification({
+                code: code,
+            });
+
+            if (completeSignUp.status === 'complete') {
+                await setSignUpActive({ session: completeSignUp.createdSessionId });
+            } else {
+                console.error(JSON.stringify(completeSignUp, null, 2));
+                setError('Verification incomplete. Please try again.');
+            }
+        } catch (err: any) {
+            setError(err.errors?.[0]?.message || 'Verification failed');
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const handleResend = () => {
-        if (countdown > 0) return;
-        setCountdown(59);
-        // TODO: Resend OTP
-        alert('New code sent!');
+    const handleResend = async () => {
+        if (countdown > 0 || !signUpLoaded) return;
+
+        try {
+            await signUp.prepareEmailAddressVerification({ strategy: 'email_code' });
+            setCountdown(59);
+            alert('New code sent!');
+        } catch (err: any) {
+            alert(err.errors?.[0]?.message || 'Failed to resend code');
+        }
     };
 
     return (
@@ -1192,15 +1763,19 @@ export const OTPScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
             {/* Content */}
             <View style={otpStyles.content}>
                 <Text style={[otpStyles.description, { color: `${theme.text}99` }]}>
-                    Enter the 4-digit code we just sent to your inbox.
+                    Enter the 6-digit code we just sent to your inbox.
                 </Text>
+
+                {error && (
+                    <Text style={{ color: theme.error, marginBottom: 16, fontWeight: 'bold' }}>{error}</Text>
+                )}
 
                 {/* OTP Inputs */}
                 <View style={otpStyles.otpRow}>
                     {otp.map((digit, i) => (
                         <TextInput
                             key={i}
-                            ref={(ref: TextInput | null) => { inputRefs.current[i] = ref; }}
+                            ref={(ref: any | null) => { inputRefs.current[i] = ref; }}
                             style={[otpStyles.otpInput, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.primary }]}
                             keyboardType="numeric"
                             maxLength={1}
@@ -1274,8 +1849,9 @@ const otpStyles = StyleSheet.create({
     content: {
         flex: 1,
         padding: 32,
+        paddingTop: 48,
         alignItems: 'center',
-        justifyContent: 'center',
+        justifyContent: 'flex-start',
     },
     description: {
         fontSize: 14,
@@ -1287,9 +1863,10 @@ const otpStyles = StyleSheet.create({
     },
     otpRow: {
         flexDirection: 'row',
-        gap: 16,
+        gap: 12,
         justifyContent: 'center',
-        marginBottom: 40,
+        marginBottom: 32,
+        flexWrap: 'wrap',
     },
     otpInput: {
         width: 64,
@@ -1305,6 +1882,7 @@ const otpStyles = StyleSheet.create({
     actionsContainer: {
         width: '100%',
         gap: 16,
+        marginBottom: 40,
     },
     verifyButton: {
         width: '100%',

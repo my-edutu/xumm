@@ -324,3 +324,137 @@ button:focus {
 .bg-inspire-teal {
   background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
 }
+
+/* ========================================
+   LANDING PAGE STYLES
+   ======================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;800&display=swap');
+
+.heading-font {
+  font-family: 'Space Grotesk', 'Inter', sans-serif;
+  letter-spacing: -0.03em;
+}
+
+/* ========================================
+   STANDARDIZED BUTTON SYSTEM v2.0
+   ======================================== */
+
+.btn-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  line-height: normal;
+  border: 1px solid transparent;
+}
+
+.btn-base:active {
+  transform: scale(0.96);
+}
+
+/* Primary Button Style */
+.btn-primary {
+  background: #3b82f6;
+  color: #ffffff;
+  box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.39);
+}
+
+.btn-primary:hover {
+  background: #2563eb;
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.45);
+  transform: translateY(-2px);
+}
+
+/* Secondary Button Style */
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  backdrop-filter: blur(8px);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+/* Sizes */
+.btn-lg {
+  height: 56px;
+  padding: 0 32px;
+  font-size: 14px;
+}
+
+.btn-md {
+  height: 48px;
+  padding: 0 24px;
+  font-size: 13px;
+}
+
+.btn-sm {
+  height: 38px;
+  padding: 0 16px;
+  font-size: 11px;
+}
+
+/* Variants for Orange/Legacy compatibility */
+.btn-orange {
+  background: #f97316;
+  box-shadow: 0 4px 14px 0 rgba(249, 115, 22, 0.3);
+}
+
+.btn-orange:hover {
+  background: #ea580c;
+  box-shadow: 0 6px 20px rgba(249, 115, 22, 0.45);
+}
+
+.text-gradient {
+  background: linear-gradient(to bottom, #ffffff 60%, rgba(59, 130, 246, 0.7) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Text utilities */
+.text-dim {
+  color: #64748b;
+}
+
+/* Selection styling */
+::selection {
+  background-color: rgba(59, 130, 246, 0.3);
+}
+
+@keyframes fade-in-up {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(5px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes slow-zoom {
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.05);
+  }
+}

@@ -5,8 +5,9 @@
  * the contributor interface for the XUM AI data labeling platform.
  */
 
-import React, { useState, useEffect } from 'react';
-import {
+import React, { useState, useEffect, useRef } from 'react';
+import ReactNative from 'react-native';
+const {
   View,
   Text,
   StyleSheet,
@@ -18,9 +19,15 @@ import {
   Dimensions,
   Modal,
   Image,
-} from 'react-native';
+  ActivityIndicator,
+  Animated,
+  ImageBackground,
+} = ReactNative;
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
+import { supabase } from './supabaseClient';
+import { ScreenName } from './types';
 
 // Import Auth Screens (Pure React Native - APK compatible)
 import {
@@ -30,38 +37,21 @@ import {
   ForgotPasswordScreen,
   OTPScreen,
 } from './screens/AuthScreensNative';
+import { LeaderboardScreen } from './screens/LeaderboardScreen';
+import { XumJudgeScreen } from './screens/XumJudgeScreen';
+import { RecordsScreen } from './screens/RecordsScreen';
+import { WalletScreen } from './screens/WalletScreen';
+import { ProfileScreen } from './screens/ProfileScreen';
+import { SupportScreen } from './screens/SupportScreen';
+import { VoiceTaskScreen } from './screens/tasks/VoiceTaskScreen';
+import { ImageTaskScreen } from './screens/tasks/ImageTaskScreen';
+import { VideoTaskScreen } from './screens/tasks/VideoTaskScreen';
+import { EditProfileScreen } from './screens/EditProfileScreen';
+import { TaskService, Transaction } from './services/taskService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
-// Application screen names - used for navigation throughout the app
-type AppScreenName =
-  | 'SPLASH'
-  | 'ONBOARDING'
-  | 'AUTH'
-  | 'FORGOT_PASSWORD'
-  | 'OTP_VERIFICATION'
-  | 'HOME'
-  | 'WALLET'
-  | 'SETTINGS'
-  | 'PROFILE'
-  | 'LEADERBOARD'
-  | 'TASK_MARKETPLACE'
-  | 'TASK_DETAILS'
-  | 'ENVIRONMENTAL_SENSING'
-  | 'LINGUASENSE_ENGINE'
-  | 'TEXT_INPUT_TASK'
-  | 'TASK_SUCCESS'
-  | 'APPEARANCE_LABS';
-
-interface Transaction {
-  id: string;
-  type: 'earn' | 'withdraw' | 'bonus';
-  amount: number;
-  description: string;
-  date: string;
-}
+// Clerk Authentication
+import { ClerkProvider, useUser, useAuth, useClerk, SignedIn, SignedOut } from './context/ClerkProvider';
 
 import {
   ThemeContext,
@@ -76,12 +66,56 @@ import {
 let colors: ThemeColors = themePresets.solar;
 
 // ============================================================================
+// TYPES
+// ============================================================================
+
+// ScreenName is imported from types.ts
+// Transaction type imported from TaskService
+
+// ============================================================================
+// SHARED COMPONENTS
+// ============================================================================
+
+const XumJudgeItems = ({ onNavigate, userId }: { onNavigate: (s: ScreenName) => void; userId: string }) => {
+  const { theme } = useTheme();
+  const [judgeTasks, setJudgeTasks] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const loadTasks = async () => {
+      const data = await TaskService.getXumJudgeTasks(userId);
+      setJudgeTasks(data.slice(0, 2)); // Show only 2 on home
+    };
+    loadTasks();
+  }, [userId]);
+
+  return (
+    <>
+      {judgeTasks.map((task) => (
+        <TouchableOpacity key={task.id} onPress={() => onNavigate(ScreenName.XUM_JUDGE)} style={[styles.judgeCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <View style={[styles.judgeIconBox, { backgroundColor: `${task.icon_color}15` }]}>
+            <MaterialIcons name={task.icon_name} size={22} color={task.icon_color} />
+          </View>
+          <View style={styles.judgeInfo}>
+            <Text style={[styles.judgeTitle, { color: theme.text }]}>{task.title}</Text>
+            <Text style={[styles.judgeSubtitle, { color: theme.textSecondary }]}>{task.subtitle}</Text>
+          </View>
+          <View style={styles.judgeReward}>
+            <Text style={[styles.judgeRewardValue, { color: theme.success }]}>${(task.reward || 0).toFixed(2)}</Text>
+          </View>
+        </TouchableOpacity>
+      ))}
+    </>
+  );
+};
+
+// ============================================================================
 // SPLASH SCREEN
 // ============================================================================
 
-const SplashScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ onNavigate }) => {
+const SplashScreen = ({ onNavigate }: { onNavigate: (s: ScreenName) => void }) => {
   useEffect(() => {
-    const timer = setTimeout(() => onNavigate('ONBOARDING'), 3000);
+    const timer = setTimeout(() => onNavigate(ScreenName.ONBOARDING), 3000);
     return () => clearTimeout(timer);
   }, [onNavigate]);
 
@@ -93,7 +127,10 @@ const SplashScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ on
       />
       <View style={styles.splashLogoContainer}>
         <View style={styles.splashLogoGlow} />
-        <MaterialIcons name="psychology" size={80} color="#fff" />
+        <Image
+          source={require('../assets/logo.png')}
+          style={{ width: 100, height: 100, resizeMode: 'contain' }}
+        />
       </View>
       <Text style={styles.splashTitle}>XUM AI</Text>
       <View style={styles.splashLine} />
@@ -109,7 +146,7 @@ const SplashScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ on
 // ONBOARDING SCREEN
 // ============================================================================
 
-const OnboardingScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ onNavigate }) => {
+const OnboardingScreen = ({ onNavigate }: { onNavigate: (s: ScreenName) => void }) => {
   const slides = [
     {
       title: 'Neural Training',
@@ -130,6 +167,10 @@ const OnboardingScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = (
 
   const [step, setStep] = useState(0);
 
+  const handleSkip = () => {
+    onNavigate(ScreenName.HOME);
+  };
+
   return (
     <View style={styles.onboardingContainer}>
       <LinearGradient
@@ -139,7 +180,7 @@ const OnboardingScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = (
       <SafeAreaView style={styles.flex1}>
         <View style={styles.onboardingHeader}>
           <Text style={styles.onboardingLogo}>XUM AI</Text>
-          <TouchableOpacity onPress={() => onNavigate('HOME')}>
+          <TouchableOpacity onPress={() => onNavigate(ScreenName.HOME)}>
             <Text style={styles.skipText}>SKIP</Text>
           </TouchableOpacity>
         </View>
@@ -173,7 +214,7 @@ const OnboardingScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = (
               if (step < slides.length - 1) {
                 setStep(step + 1);
               } else {
-                onNavigate('HOME');
+                onNavigate(ScreenName.HOME);
               }
             }}
           >
@@ -193,148 +234,245 @@ const OnboardingScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = (
 // ============================================================================
 
 interface HomeProps {
-  onNavigate: (s: AppScreenName) => void;
+  onNavigate: (s: ScreenName) => void;
   balance: number;
   onOpenNeuralInput: () => void;
   onOpenContributorHub: () => void;
+  session: any;
 }
 
-const HomeScreen: React.FC<HomeProps> = ({
+const HomeScreen = ({
   onNavigate,
   balance,
   onOpenNeuralInput,
   onOpenContributorHub,
-}) => {
+  session,
+}: HomeProps) => {
   const { theme } = useTheme();
 
-  const judgeTasks = [
-    { id: 'j1', title: 'GENERAL KNOWLEDGE RLHF', subtitle: 'Linguistic Feedback Node', reward: 1.20, xp: 250 },
-    { id: 'j2', title: 'CULTURAL CORRECTION', subtitle: 'Linguistic Feedback Node', reward: 2.50, xp: 400 },
-  ];
+  const [featuredTasks, setFeaturedTasks] = useState<any[]>([]);
+  const [missions, setMissions] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
 
-  const missions = [
-    { id: 'm1', title: 'STREET SIGN LABELING', time: '2M', xp: 25, reward: 0.50, icon: 'image' },
-    { id: 'm2', title: 'LOCAL DIALECT VOICE', time: '5M', xp: 50, reward: 1.25, icon: 'mic' },
-    { id: 'm3', title: 'SENTIMENT CHECK', time: '1M', xp: 10, reward: 0.15, icon: 'description' },
-  ];
+  // Load Home Data
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    const loadData = async () => {
+      const [fTasks, dMissions, uStats] = await Promise.all([
+        TaskService.getFeaturedTasks(),
+        TaskService.getDailyMissions(session.user.id),
+        TaskService.getUserTaskStats(session.user.id)
+      ]);
+      setFeaturedTasks(fTasks);
+      setMissions(dMissions);
+      setStats(uStats);
+    };
+
+    loadData();
+  }, [session?.user?.id, balance]); // Reload on balance change too for freshness
+
+  // Calculate user's 24h rank (mock logic for now, could be real if backend supports)
+  const userRank = 142;
+  const user24hEarned = stats?.totalEarned || 0;
 
   return (
     <View style={[styles.screenContainer, { backgroundColor: theme.background }]}>
-      <ScrollView style={styles.flex1} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={styles.flex1} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <View style={styles.homeHeader}>
-          <Text style={styles.welcomeText}>WELCOME BACK,</Text>
-          <Text style={[styles.agentText, { color: theme.primary }]}>DEMO</Text>
+        <View style={[styles.homeHeader, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
+          <View>
+            <Text style={styles.welcomeText}>WELCOME BACK,</Text>
+            <Text style={[styles.agentText, { color: '#fff', fontSize: 13, fontWeight: '600' }]}>
+              {(session?.user?.fullName || session?.user?.firstName || session?.user?.primaryEmailAddress?.emailAddress?.split('@')[0] || 'CONTRIBUTOR').toUpperCase()}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={() => onNavigate(ScreenName.PROFILE)}
+            activeOpacity={0.7}
+            style={{ position: 'relative' }}
+          >
+            {session?.user?.imageUrl ? (
+              <Image
+                source={{ uri: session.user.imageUrl }}
+                style={{ width: 60, height: 60, borderRadius: 30, borderWidth: 3, borderColor: theme.primary }}
+              />
+            ) : (
+              <View style={{
+                width: 60,
+                height: 60,
+                borderRadius: 30,
+                borderWidth: 3,
+                borderColor: theme.primary,
+                backgroundColor: `${theme.primary}20`,
+                justifyContent: 'center',
+                alignItems: 'center'
+              }}>
+                <MaterialIcons name="person" size={36} color={theme.primary} />
+              </View>
+            )}
+            <View style={{
+              position: 'absolute',
+              bottom: 2,
+              right: 2,
+              width: 14,
+              height: 14,
+              borderRadius: 7,
+              backgroundColor: theme.success,
+              borderWidth: 3,
+              borderColor: theme.background
+            }} />
+          </TouchableOpacity>
         </View>
 
-        {/* Stats Cards - Removed currency symbol for better UX */}
+        {/* Stats Cards - Clean minimal design */}
         <View style={styles.statsRow}>
-          <TouchableOpacity onPress={() => onNavigate('WALLET')} style={[styles.statCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={styles.statIconRow}>
-              <View style={[styles.statIconBg, { backgroundColor: `${theme.primary}20` }]}>
-                <MaterialIcons name="stars" size={20} color={theme.primary} />
-              </View>
-              <Text style={styles.statLabel}>BALANCE</Text>
-            </View>
-            <Text style={[styles.statValue, { color: theme.primary }]}>{balance.toFixed(0)}</Text>
-            <Text style={styles.statSubtext}>XUM CREDITS</Text>
+          <TouchableOpacity onPress={() => onNavigate(ScreenName.WALLET)} style={[styles.statCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.statLabel, { marginBottom: 8 }]}>BALANCE</Text>
+            <Text style={[styles.statValue, { color: theme.success }]}>${(balance || 0).toFixed(2)}</Text>
+            <Text style={styles.statSubtext}>USD BALANCE</Text>
           </TouchableOpacity>
           <View style={[styles.statCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={styles.statIconRow}>
-              <View style={[styles.statIconBg, { backgroundColor: `${theme.warning}20` }]}>
-                <MaterialIcons name="pending" size={20} color={theme.warning} />
-              </View>
-              <Text style={styles.statLabel}>IN REVIEW</Text>
-            </View>
-            <Text style={styles.statValue}>3</Text>
+            <Text style={[styles.statLabel, { marginBottom: 8 }]}>IN REVIEW</Text>
+            <Text style={[styles.statValue, { color: theme.warning }]}>{stats?.pendingReview || 0}</Text>
             <Text style={styles.statSubtext}>TASKS</Text>
           </View>
         </View>
 
-        {/* Leaderboard Card - Redesigned with avatars and ranking */}
-        <TouchableOpacity onPress={() => onNavigate('LEADERBOARD')}>
-          <LinearGradient colors={[theme.primary, theme.primaryDark]} style={styles.networkCard}>
-            {/* Avatar Circles */}
-            <View style={styles.avatarRow}>
-              <View style={[styles.avatarCircle, { marginLeft: 0 }]}>
-                <Text style={styles.avatarText}>A</Text>
-              </View>
-              <View style={[styles.avatarCircle, { marginLeft: -12 }]}>
-                <Text style={styles.avatarText}>M</Text>
-              </View>
-              <View style={[styles.avatarCircle, { marginLeft: -12 }]}>
-                <Text style={styles.avatarText}>K</Text>
-              </View>
-              <View style={[styles.avatarCircle, { marginLeft: -12, backgroundColor: 'rgba(255,255,255,0.3)' }]}>
-                <Text style={styles.avatarTextSmall}>+300</Text>
+        {/* Leaderboard Card - Redesigned with 24hr earnings logic */}
+        {/* Leaderboard Card - Redesigned "Nanobanana" Perspective */}
+        <TouchableOpacity onPress={() => onNavigate(ScreenName.LEADERBOARD)}>
+          <ImageBackground
+            source={{ uri: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=2670&auto=format&fit=crop' }}
+            style={[styles.networkCard, { padding: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', overflow: 'hidden' }]}
+            imageStyle={{ opacity: 0.4 }}
+          >
+            <LinearGradient
+              colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0.9)']}
+              style={[StyleSheet.absoluteFill, { zIndex: 1 }]}
+            />
+
+            {/* Main Content */}
+            <View style={{ padding: 24, zIndex: 2, flex: 1, justifyContent: 'space-between' }}>
+              <View>
+                <View style={{
+                  backgroundColor: 'rgba(255,255,255,0.15)',
+                  alignSelf: 'flex-start',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                  borderRadius: 8,
+                  marginBottom: 16
+                }}>
+                  <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 1.2 }}>
+                    WEEKLY RANKING
+                  </Text>
+                </View>
+                <Text style={{ color: '#fff', fontSize: 24, fontWeight: '300', letterSpacing: -0.5, opacity: 0.9 }}>GLOBAL</Text>
+                <Text style={{ color: '#fff', fontSize: 28, fontWeight: '900', letterSpacing: 0.5, lineHeight: 32 }}>LEADERBOARD</Text>
               </View>
             </View>
 
-            <View style={styles.leaderboardContent}>
-              <View style={styles.networkBadge}>
-                <Text style={styles.networkBadgeText}>LEADERBOARD</Text>
+            {/* Top Right - Avatars (Replaces Rank) */}
+            <View style={{ position: 'absolute', top: 24, right: 24, zIndex: 2 }}>
+              <View style={[styles.avatarRow, { transform: [{ scale: 0.9 }], marginRight: -10 }]}>
+                {session?.user?.imageUrl ? (
+                  <Image
+                    source={{ uri: session.user.imageUrl }}
+                    style={[styles.avatarCircle, { marginLeft: 0, borderWidth: 2, borderColor: '#fff' }]}
+                  />
+                ) : (
+                  <View style={[styles.avatarCircle, { marginLeft: 0 }]}>
+                    <Text style={styles.avatarText}>{session?.user?.email?.[0].toUpperCase() || 'A'}</Text>
+                  </View>
+                )}
+                <View style={[styles.avatarCircle, { marginLeft: -12, backgroundColor: 'rgba(255,255,255,0.15)' }]}>
+                  <Text style={styles.avatarText}>M</Text>
+                </View>
+                <View style={[styles.avatarCircle, { marginLeft: -12, backgroundColor: 'rgba(255,255,255,0.3)' }]}>
+                  <Text style={styles.avatarTextSmall}>+300</Text>
+                </View>
               </View>
-              <Text style={styles.networkTitle}>Global Rankings</Text>
-              <Text style={styles.leaderboardDesc}>Join 300+ contributors competing worldwide</Text>
             </View>
-
-            <View style={styles.networkNodeContainer}>
-              <Text style={styles.networkNodeLabel}>YOUR RANK</Text>
-              <Text style={styles.networkNodeValue}>#142</Text>
-              <Text style={styles.rankChange}>↑ 8 this week</Text>
-            </View>
-          </LinearGradient>
+          </ImageBackground>
         </TouchableOpacity>
 
         {/* XUM Judge Section */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>XUM JUDGE</Text>
-          <TouchableOpacity onPress={() => onNavigate('TASK_MARKETPLACE')}>
+          <TouchableOpacity onPress={() => onNavigate(ScreenName.XUM_JUDGE)}>
             <Text style={[styles.sectionLink, { color: theme.primary }]}>VIEW MORE</Text>
           </TouchableOpacity>
         </View>
-        {judgeTasks.map((task) => (
-          <TouchableOpacity key={task.id} onPress={() => onNavigate('TASK_DETAILS')} style={[styles.judgeCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={[styles.judgeIconBox, { backgroundColor: `${theme.primary}15` }]}>
-              <MaterialIcons name="gavel" size={22} color={theme.primary} />
-            </View>
-            <View style={styles.judgeInfo}>
-              <Text style={styles.judgeTitle}>{task.title}</Text>
-              <Text style={styles.judgeSubtitle}>{task.subtitle}</Text>
-            </View>
-            <View style={styles.judgeReward}>
-              <Text style={[styles.judgeRewardValue, { color: theme.primary }]}>${task.reward.toFixed(2)}</Text>
-              <Text style={styles.judgeRewardXp}>+{task.xp} XP</Text>
-            </View>
-          </TouchableOpacity>
-        ))}
+        <XumJudgeItems onNavigate={onNavigate} userId={session?.user?.id} />
+
+        {/* Featured Section */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>FEATURED</Text>
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingLeft: 20, paddingRight: 4 }}
+        >
+          {featuredTasks.length > 0 ? (
+            featuredTasks.map((task) => (
+              <TouchableOpacity key={task.id} onPress={() => onNavigate(task.target_screen)} activeOpacity={0.9} style={{ marginRight: 16 }}>
+                <LinearGradient
+                  colors={[task.gradient_start, task.gradient_end]}
+                  style={styles.featuredPromoCardSmall}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <View style={styles.featuredPromoContent}>
+                    <View style={styles.featuredPromoBadge}>
+                      <Text style={styles.featuredPromoBadgeText}>{task.badge_text}</Text>
+                    </View>
+                    <Text style={styles.featuredPromoTitleSmall}>{task.title}</Text>
+                    <Text style={styles.featuredPromoSubtitleSmall}>{task.subtitle}</Text>
+                  </View>
+                  <View style={styles.featuredPromoIconBgRight}>
+                    <MaterialIcons name={task.icon_name} size={70} color="rgba(255,255,255,0.2)" />
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            ))
+          ) : (
+            <LinearGradient colors={['#333', '#222']} style={styles.featuredPromoCardSmall}>
+              <View style={styles.featuredPromoContent}>
+                <Text style={{ color: '#888' }}>Loading promos...</Text>
+              </View>
+            </LinearGradient>
+          )}
+        </ScrollView>
+
 
         {/* Daily Missions Section */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>DAILY MISSIONS</Text>
-          <TouchableOpacity onPress={() => onNavigate('TASK_MARKETPLACE')}>
+          <TouchableOpacity onPress={() => onNavigate(ScreenName.TASK_MARKETPLACE)}>
             <Text style={[styles.sectionLink, { color: theme.primary }]}>BROWSE ALL</Text>
           </TouchableOpacity>
         </View>
         {missions.map((mission) => (
-          <TouchableOpacity key={mission.id} onPress={() => onNavigate('TASK_DETAILS')} style={[styles.missionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={[styles.missionIconBox, { backgroundColor: `${theme.primary}15` }]}>
-              <MaterialIcons name={mission.icon as any} size={22} color={theme.primary} />
+          <TouchableOpacity key={mission.id} onPress={() => onNavigate(mission.target_screen)} style={[styles.missionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <View style={[styles.missionIconBox, { backgroundColor: `${mission.icon_color}15` }]}>
+              <MaterialIcons name={mission.icon_name} size={22} color={mission.icon_color} />
             </View>
             <View style={styles.missionInfo}>
-              <Text style={styles.missionTitle}>{mission.title}</Text>
+              <Text style={[styles.missionTitle, { color: theme.text }]}>{mission.title}</Text>
               <View style={styles.missionMeta}>
-                <Text style={styles.missionTime}>⏱ {mission.time}</Text>
-                <Text style={[styles.missionXp, { color: theme.primary }]}>⚡ {mission.xp} XP</Text>
+                <Text style={[styles.missionTime, { color: theme.textSecondary }]}>⏱ {mission.estimated_time}</Text>
               </View>
             </View>
-            <Text style={[styles.missionReward, { color: theme.primary }]}>${mission.reward.toFixed(2)}</Text>
+            <Text style={[styles.missionReward, { color: theme.success }]}>${(mission.reward || 0).toFixed(2)}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
 
       <BottomNavigation
-        activeScreen="HOME"
+        activeScreen={ScreenName.HOME}
         onNavigate={onNavigate}
         onOpenNeuralInput={onOpenNeuralInput}
         onOpenContributorHub={onOpenContributorHub}
@@ -347,35 +485,82 @@ const HomeScreen: React.FC<HomeProps> = ({
 // ENVIRONMENTAL SENSING SCREEN
 // ============================================================================
 
-const EnvironmentalSensingScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ onNavigate }) => {
-  const options = [
-    { title: 'RECORD VOICE', subtitle: 'AUDIO LINGUISTIC GROUNDING.', icon: 'mic', color: '#1349ec' },
-    { title: 'CAPTURE IMAGE', subtitle: 'VISUAL ENVIRONMENT MAPPING.', icon: 'camera-alt', color: '#10b981' },
-    { title: 'RECORD VIDEO', subtitle: 'TEMPORAL SCENE ANALYSIS.', icon: 'videocam', color: '#f43f5e' },
-    { title: 'WRITE/TYPE TEXT', subtitle: 'SEMANTIC TEXT DATASETS.', icon: 'description', color: '#f97316' },
+const EnvironmentalSensingScreen = ({ onNavigate }: { onNavigate: (s: ScreenName) => void }) => {
+  const { theme } = useTheme();
+
+  const captureOptions = [
+    {
+      title: 'Record Voice',
+      subtitle: 'Speak prompts to help AI understand speech',
+      description: 'Complete 5 voice recordings to earn rewards',
+      icon: 'mic',
+      color: '#1349ec',
+      reward: '$0.25 per task',
+      screen: 'VOICE_TASK' as ScreenName
+    },
+    {
+      title: 'Take Photos',
+      subtitle: 'Capture images of objects and scenes',
+      description: 'Complete 5 photo tasks to earn rewards',
+      icon: 'camera-alt',
+      color: '#10b981',
+      reward: '$0.30 per task',
+      screen: 'IMAGE_TASK' as ScreenName
+    },
+    {
+      title: 'Record Video',
+      subtitle: 'Film short clips for motion training',
+      description: 'Complete 5 video recordings to earn rewards',
+      icon: 'videocam',
+      color: '#f43f5e',
+      reward: '$0.50 per task',
+      screen: 'VIDEO_TASK' as ScreenName
+    },
   ];
 
   return (
-    <View style={styles.screenContainer}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => onNavigate('HOME')}>
-          <MaterialIcons name="arrow-back" size={24} color="#fff" />
+    <View style={[styles.screenContainer, { backgroundColor: theme.background }]}>
+      <View style={[styles.header, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity onPress={() => onNavigate(ScreenName.HOME)}>
+          <MaterialIcons name="arrow-back" size={24} color={theme.textSecondary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>CAPTURE DATA</Text>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>CAPTURE DATA</Text>
         <View style={{ width: 24 }} />
       </View>
       <ScrollView style={styles.flex1} contentContainerStyle={styles.scrollContent}>
-        <Text style={modalStyles.screenTitle}>ENVIRONMENTAL{'\n'}SENSING</Text>
-        {options.map((opt, i) => (
-          <TouchableOpacity key={i} style={modalStyles.sensorCard} onPress={() => onNavigate('TASK_MARKETPLACE')}>
-            <View style={[modalStyles.sensorIconBox, { backgroundColor: opt.color }]}>
+        {/* Hero Section */}
+        <View style={{ marginBottom: 24 }}>
+          <Text style={[captureStyles.heroTitle, { color: theme.text }]}>Earn Money{'\n'}With Your Phone</Text>
+          <Text style={[captureStyles.heroSubtitle, { color: theme.textSecondary }]}>
+            Use your camera and microphone to help train AI. Complete tasks, get paid instantly.
+          </Text>
+        </View>
+
+        {/* How It Works */}
+        <View style={[captureStyles.infoBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <MaterialIcons name="info-outline" size={20} color={theme.primary} />
+          <Text style={[captureStyles.infoText, { color: theme.textSecondary }]}>
+            Complete 5 tasks in a row to unlock your reward. Add English translations for bonus credits!
+          </Text>
+        </View>
+
+        {/* Capture Options */}
+        {captureOptions.map((opt, i) => (
+          <TouchableOpacity
+            key={i}
+            style={[captureStyles.optionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            onPress={() => onNavigate(opt.screen)}
+            activeOpacity={0.8}
+          >
+            <View style={[captureStyles.optionIconBox, { backgroundColor: opt.color }]}>
               <MaterialIcons name={opt.icon as any} size={28} color="#fff" />
             </View>
-            <View style={modalStyles.sensorInfo}>
-              <Text style={modalStyles.sensorTitle}>{opt.title}</Text>
-              <Text style={modalStyles.sensorSubtitle}>{opt.subtitle}</Text>
+            <View style={captureStyles.optionInfo}>
+              <Text style={[captureStyles.optionTitle, { color: theme.text }]}>{opt.title}</Text>
+              <Text style={[captureStyles.optionSubtitle, { color: theme.textSecondary }]}>{opt.subtitle}</Text>
+              <Text style={[captureStyles.optionReward, { color: theme.success }]}>{opt.reward}</Text>
             </View>
-            <MaterialIcons name="chevron-right" size={24} color="rgba(255,255,255,0.3)" />
+            <MaterialIcons name="chevron-right" size={24} color={theme.textSecondary} />
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -383,11 +568,12 @@ const EnvironmentalSensingScreen: React.FC<{ onNavigate: (s: AppScreenName) => v
   );
 };
 
+
 // ============================================================================
 // LINGUASENSE ENGINE SCREEN
 // ============================================================================
 
-const LinguaSenseEngineScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ onNavigate }) => {
+const LinguaSenseEngineScreen = ({ onNavigate }: { onNavigate: (s: ScreenName) => void }) => {
   const infraItems = [
     { title: 'GROUNDING (H2D)', subtitle: 'Convert human dialects into machine intelligence.', icon: 'psychology', tasks: 42, color: '#1349ec' },
     { title: 'SYNTHESIS (D2H)', subtitle: 'Test AI comprehension of complex cultural cues.', icon: 'auto-awesome', tasks: 18, color: '#4338ca' },
@@ -397,7 +583,7 @@ const LinguaSenseEngineScreen: React.FC<{ onNavigate: (s: AppScreenName) => void
   return (
     <View style={styles.screenContainer}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => onNavigate('HOME')}>
+        <TouchableOpacity onPress={() => onNavigate(ScreenName.HOME)}>
           <MaterialIcons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>LINGUASENSE ENGINE</Text>
@@ -407,21 +593,21 @@ const LinguaSenseEngineScreen: React.FC<{ onNavigate: (s: AppScreenName) => void
         <LinearGradient colors={['#1e2330', '#1349ec44']} style={modalStyles.linguaHero}>
           <View style={modalStyles.linguaHeroHeader}>
             <View style={modalStyles.activeDot} />
-            <Text style={modalStyles.heroStatus}>CORE SYSTEMS ACTIVE</Text>
+            <Text style={modalStyles.heroStatus}>SYSTEM ACTIVE</Text>
           </View>
-          <Text style={modalStyles.heroTitle}>DEEP{'\n'}LANGUAGE LAB</Text>
-          <Text style={modalStyles.heroSubtitle}>Bridges the gap between human culture and artificial reasoning.</Text>
+          <Text style={modalStyles.heroTitle}>Language{'\n'}Lab</Text>
+          <Text style={modalStyles.heroSubtitle}>Help AI understand human culture and dialects through simple tasks.</Text>
           <View style={modalStyles.heroStats}>
             <View style={modalStyles.heroStat}>
-              <Text style={modalStyles.statLabel}>GLOBAL REACHING</Text>
-              <Text style={modalStyles.statValue}>114 NODES</Text>
+              <Text style={modalStyles.statLabel}>GLOBAL NODES</Text>
+              <Text style={modalStyles.statValue}>114</Text>
             </View>
             <View style={modalStyles.heroStat}>
-              <Text style={modalStyles.statLabel}>DATASET PURITY</Text>
+              <Text style={modalStyles.statLabel}>ACCURACY</Text>
               <Text style={modalStyles.statValue}>99.8%</Text>
             </View>
             <View style={modalStyles.heroStat}>
-              <Text style={modalStyles.statLabel}>HUMAN NETWORK</Text>
+              <Text style={modalStyles.statLabel}>CONTRIBUTORS</Text>
               <Text style={modalStyles.statValue}>2.4M</Text>
             </View>
           </View>
@@ -430,9 +616,9 @@ const LinguaSenseEngineScreen: React.FC<{ onNavigate: (s: AppScreenName) => void
           </View>
         </LinearGradient>
 
-        <Text style={[styles.sectionTitle, { marginTop: 32, marginBottom: 16 }]}>NEURAL INFRASTRUCTURE</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 32, marginBottom: 16 }]}>AVAILABLE TASKS</Text>
         {infraItems.map((item, i) => (
-          <TouchableOpacity key={i} style={modalStyles.infraCard} onPress={() => onNavigate('TASK_MARKETPLACE')}>
+          <TouchableOpacity key={i} style={modalStyles.infraCard} onPress={() => onNavigate(ScreenName.TASK_MARKETPLACE)}>
             <View style={modalStyles.infraIconBox}>
               <MaterialIcons name={item.icon as any} size={24} color={item.color} />
             </View>
@@ -447,78 +633,42 @@ const LinguaSenseEngineScreen: React.FC<{ onNavigate: (s: AppScreenName) => void
         ))}
 
         <View style={modalStyles.footerInfo}>
-          <Text style={modalStyles.footerText}>ENCRYPTION: AES-256</Text>
-          <Text style={modalStyles.footerText}>STATUS: 200 OK</Text>
+          <Text style={modalStyles.footerText}>SECURE CONNECTION</Text>
+          <Text style={modalStyles.footerText}>STATUS: ONLINE</Text>
         </View>
       </ScrollView>
     </View>
   );
 };
+// PROFILE SCREEN MOVED TO EXTERNAL FILE
 
-// ============================================================================
-// PROFILE SCREEN
-// ============================================================================
-
-const ProfileScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ onNavigate }) => {
-  return (
-    <View style={styles.screenContainer}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => onNavigate('HOME')}>
-          <MaterialIcons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>PROFILE</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <ScrollView style={styles.flex1} contentContainerStyle={styles.scrollContent}>
-        <View style={profileStyles.avatarSection}>
-          <View style={profileStyles.avatarWrapper}>
-            <View style={profileStyles.avatar}>
-              <Text style={profileStyles.avatarText}>DU</Text>
-            </View>
-            <View style={profileStyles.levelBadge}>
-              <Text style={profileStyles.levelText}>L12</Text>
-            </View>
-          </View>
-          <Text style={profileStyles.userName}>DEMO USER</Text>
-          <Text style={profileStyles.nodeId}>CONTRIBUTOR NODE #0000</Text>
-        </View>
-
-        <View style={profileStyles.statsGrid}>
-          <View style={profileStyles.statCard}>
-            <Text style={profileStyles.statLabel}>EARNINGS</Text>
-            <Text style={profileStyles.statValue}>$247.50</Text>
-          </View>
-          <View style={profileStyles.statCard}>
-            <Text style={profileStyles.statLabel}>PRECISION</Text>
-            <Text style={[profileStyles.statValue, { color: '#10b981' }]}>98.4%</Text>
-          </View>
-        </View>
-      </ScrollView>
-    </View>
-  );
-};
 
 // ============================================================================
 // APPEARANCE LABS SCREEN
 // ============================================================================
 
 interface AppearanceLabsProps {
-  onNavigate: (s: AppScreenName) => void;
+  onNavigate: (s: ScreenName) => void;
   currentTheme: ThemeId;
   onThemeChange: (themeId: ThemeId) => void;
 }
 
-const AppearanceLabsScreen: React.FC<AppearanceLabsProps> = ({ onNavigate, currentTheme, onThemeChange }) => {
+const AppearanceLabsScreen = ({ onNavigate, currentTheme, onThemeChange }: AppearanceLabsProps) => {
   const { theme } = useTheme();
   const screenWidth = Dimensions.get('window').width;
-  const cardWidth = (screenWidth - 56) / 2; // 20px padding each side + 16px gap
+  const padding = 20;
+  const gap = 12;
+  const columnCount = screenWidth > 600 ? 4 : 3;
+  const cardWidth = (screenWidth - (padding * 2) - (gap * (columnCount - 1))) / columnCount;
+
+  // Check if currently in dark mode (any theme except 'light')
+  const isDarkMode = currentTheme !== 'light';
 
   const themes: { id: ThemeId; name: string; color: string }[] = [
     { id: 'midnight', name: 'Midnight', color: '#1349ec' },
     { id: 'emerald', name: 'Emerald', color: '#10b981' },
     { id: 'solar', name: 'Solar', color: '#f59e0b' },
-    { id: 'amoled', name: 'AMOLED', color: '#ffffff' },
+    { id: 'amoled', name: 'AMOLED', color: '#818cf8' },
     { id: 'night', name: 'Night', color: '#8b5cf6' },
     { id: 'crimson', name: 'Crimson', color: '#f43f5e' },
   ];
@@ -527,76 +677,102 @@ const AppearanceLabsScreen: React.FC<AppearanceLabsProps> = ({ onNavigate, curre
     onThemeChange(themeId);
   };
 
+  const handleDarkModeToggle = () => {
+    if (isDarkMode) {
+      // Switch to light mode
+      onThemeChange('light');
+    } else {
+      // Switch to default dark mode (midnight)
+      onThemeChange('midnight');
+    }
+  };
+
   return (
     <View style={[styles.screenContainer, { backgroundColor: theme.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => onNavigate('HOME')}>
-          <MaterialIcons name="arrow-back" size={24} color="#fff" />
+      <View style={[styles.header, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity onPress={() => onNavigate(ScreenName.HOME)}>
+          <MaterialIcons name="arrow-back" size={24} color={theme.textSecondary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>APPEARANCE</Text>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>APPEARANCE</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView style={styles.flex1} contentContainerStyle={styles.scrollContent}>
-        {/* Current Theme Card */}
-        <View style={[themeStyles.modeCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        {/* Dark Mode Toggle Card */}
+        <TouchableOpacity
+          style={[themeStyles.modeCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          onPress={handleDarkModeToggle}
+          activeOpacity={0.7}
+        >
           <View style={themeStyles.modeInfo}>
             <View style={[themeStyles.modeIconBox, { backgroundColor: `${theme.primary}20` }]}>
-              <MaterialIcons name="palette" size={22} color={theme.primary} />
+              <MaterialIcons name={isDarkMode ? "dark-mode" : "light-mode"} size={22} color={theme.primary} />
             </View>
             <View>
-              <Text style={themeStyles.modeTitle}>Current Theme</Text>
-              <Text style={[themeStyles.modeSubtitle, { color: theme.primary }]}>
-                {currentTheme.charAt(0).toUpperCase() + currentTheme.slice(1)} • Active
+              <Text style={[themeStyles.modeTitle, { color: theme.text }]}>Dark Mode</Text>
+              <Text style={[themeStyles.modeSubtitle, { color: theme.textSecondary }]}>
+                {isDarkMode ? 'On' : 'Off'} • Tap to toggle
               </Text>
             </View>
           </View>
           <View style={themeStyles.toggleContainer}>
-            <View style={[themeStyles.toggleTrack, { backgroundColor: theme.primary }]}>
-              <View style={themeStyles.toggleThumb} />
+            <View style={[themeStyles.toggleTrack, { backgroundColor: isDarkMode ? theme.primary : 'rgba(255,255,255,0.2)' }]}>
+              <View style={[themeStyles.toggleThumb, { marginLeft: isDarkMode ? 20 : 2 }]} />
             </View>
           </View>
-        </View>
+        </TouchableOpacity>
 
         {/* Section Title */}
-        <Text style={[styles.sectionTitle, { marginBottom: 20 }]}>CHOOSE THEME</Text>
+        <Text style={[styles.sectionTitle, { marginBottom: 20, marginTop: 24, color: theme.text }]}>CHOOSE THEME</Text>
 
-        {/* 2-Column Theme Grid */}
-        <View style={themeStyles.grid}>
-          {themes.map((t) => {
-            const isActive = currentTheme === t.id;
-            return (
-              <TouchableOpacity
-                key={t.id}
-                style={[
-                  themeStyles.themeCard,
-                  {
-                    width: cardWidth,
-                    backgroundColor: theme.surface,
-                    borderColor: isActive ? t.color : 'transparent',
-                  },
-                  isActive && { backgroundColor: `${t.color}08` }
-                ]}
-                onPress={() => handleThemeSelect(t.id)}
-                activeOpacity={0.8}
-              >
-                <View style={[themeStyles.themeColor, { backgroundColor: t.color }]} />
-                <Text style={themeStyles.themeName}>{t.name}</Text>
-                <View style={[
-                  themeStyles.themeBadge,
-                  isActive && { backgroundColor: t.color }
-                ]}>
-                  <Text style={[
-                    themeStyles.themeBadgeText,
-                    isActive && themeStyles.themeBadgeTextActive
+        {/* Theme Grid - Only show dark themes when in dark mode */}
+        {isDarkMode ? (
+          <View style={themeStyles.grid}>
+            {themes.map((t) => {
+              const isActive = currentTheme === t.id;
+              return (
+                <TouchableOpacity
+                  key={t.id}
+                  style={[
+                    themeStyles.themeCard,
+                    {
+                      width: cardWidth,
+                      backgroundColor: theme.surface,
+                      borderColor: isActive ? t.color : 'transparent',
+                    },
+                    isActive && { backgroundColor: `${t.color}08` }
+                  ]}
+                  onPress={() => handleThemeSelect(t.id)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[themeStyles.themeColor, { backgroundColor: t.color }]} />
+                  <Text style={[themeStyles.themeName, { color: theme.text }]}>{t.name}</Text>
+                  <View style={[
+                    themeStyles.themeBadge,
+                    isActive && { backgroundColor: t.color }
                   ]}>
-                    {isActive ? 'ACTIVE' : 'SELECT'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+                    <Text style={[
+                      themeStyles.themeBadgeText,
+                      isActive && themeStyles.themeBadgeTextActive
+                    ]}>
+                      {isActive ? 'ACTIVE' : 'SELECT'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : (
+          <View style={[captureStyles.infoBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <MaterialIcons name="light-mode" size={24} color={theme.primary} />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={{ color: theme.text, fontWeight: '600' }}>Light Mode Active</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 13 }}>
+                Enable Dark Mode to access theme options
+              </Text>
+            </View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -609,80 +785,98 @@ const AppearanceLabsScreen: React.FC<AppearanceLabsProps> = ({ onNavigate, curre
 interface ContributorHubModalProps {
   visible: boolean;
   onClose: () => void;
-  onNavigate: (s: AppScreenName) => void;
+  onNavigate: (s: ScreenName) => void;
   currentTheme: ThemeId;
+  onLogout?: () => void;
 }
 
-const ContributorHubModal: React.FC<ContributorHubModalProps> = ({ visible, onClose, onNavigate, currentTheme }) => {
+const ContributorHubModal = ({ visible, onClose, onNavigate, currentTheme, onLogout }: ContributorHubModalProps) => {
   const { theme } = useTheme();
+  const screenHeight = Dimensions.get('window').height;
+  const [expanded, setExpanded] = useState(false);
+  const expandAnim = useRef(new Animated.Value(0)).current;
 
-  const gridItems = [
-    { label: 'PROFILE', icon: 'person', color: '#3b82f6', screen: 'PROFILE' as AppScreenName },
-    { label: 'WALLET', icon: 'account-balance-wallet', color: theme.success, screen: 'WALLET' as AppScreenName },
-    { label: 'COMMS', icon: 'notifications', color: theme.warning },
-    { label: 'RANKING', icon: 'military-tech', color: '#a855f7' },
-  ];
+  useEffect(() => {
+    if (visible) {
+      setExpanded(false);
+      expandAnim.setValue(0);
+    }
+  }, [visible]);
 
-  const listItems = [
-    { label: 'THEME', icon: 'palette', subtitle: `${currentTheme.toUpperCase()} MODE`, screen: 'APPEARANCE_LABS' as AppScreenName },
-    { label: 'SETTINGS', icon: 'settings', screen: 'SETTINGS' as AppScreenName },
-    { label: 'SUPPORT', icon: 'help-center' },
+  const handleScroll = (event: any) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    if (offsetY > 20 && !expanded) {
+      setExpanded(true);
+      Animated.spring(expandAnim, {
+        toValue: 1,
+        useNativeDriver: false,
+        friction: 8,
+      }).start();
+    }
+  };
+
+  const modalHeight = expandAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [screenHeight * 0.55, screenHeight * 0.92],
+  });
+
+  const menuItems = [
+    { label: 'PROFILE', icon: 'person', color: '#3b82f6', screen: ScreenName.PROFILE },
+    { label: 'WALLET', icon: 'account-balance-wallet', color: theme.success, screen: ScreenName.WALLET },
+    { label: 'NOTIFICATIONS', icon: 'notifications', color: theme.warning },
+    { label: 'RANKING', icon: 'military-tech', color: '#a855f7', screen: ScreenName.LEADERBOARD },
+    { label: 'THEME', icon: 'palette', color: '#ec4899', subtitle: `${currentTheme.toUpperCase()} MODE`, screen: ScreenName.APPEARANCE_LABS },
+    { label: 'SETTINGS', icon: 'settings', color: '#64748b', screen: ScreenName.SETTINGS },
+    { label: 'SUPPORT', icon: 'help-center', color: '#06b6d4', screen: ScreenName.SUPPORT },
   ];
 
   const screenWidth = Dimensions.get('window').width;
-  const cardWidth = (screenWidth - 72) / 2;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={hubStyles.overlay} activeOpacity={1} onPress={onClose}>
-        <View style={[hubStyles.container, { backgroundColor: theme.background }]}>
-          <View style={hubStyles.dragHandle} />
-          <View style={hubStyles.header}>
-            <Text style={hubStyles.title}>CONTRIBUTOR HUB</Text>
-            <TouchableOpacity onPress={onClose} style={hubStyles.closeButton}>
-              <MaterialIcons name="close" size={20} color="#fff" />
-            </TouchableOpacity>
-          </View>
-
-          {/* 2x2 Grid */}
-          <View style={hubStyles.grid}>
-            {gridItems.map((item, i) => (
-              <TouchableOpacity
-                key={i}
-                style={[hubStyles.gridItem, { width: cardWidth, backgroundColor: theme.surface }]}
-                onPress={() => item.screen && onNavigate(item.screen)}
-              >
-                <View style={[hubStyles.gridIconBox, { backgroundColor: item.color }]}>
-                  <MaterialIcons name={item.icon as any} size={28} color="#fff" />
-                </View>
-                <Text style={hubStyles.gridLabel}>{item.label}</Text>
+        <Animated.View style={[hubStyles.container, { height: modalHeight, backgroundColor: theme.background, maxHeight: screenHeight }]}>
+          <TouchableOpacity activeOpacity={1} onPress={() => { }} style={{ flex: 1 }}>
+            <View style={hubStyles.dragHandle} />
+            <View style={hubStyles.header}>
+              <Text style={hubStyles.title}>MENU</Text>
+              <TouchableOpacity onPress={onClose} style={hubStyles.closeButton}>
+                <MaterialIcons name="close" size={20} color="#fff" />
               </TouchableOpacity>
-            ))}
-          </View>
+            </View>
 
-          <View style={hubStyles.list}>
-            {listItems.map((item, i) => (
-              <TouchableOpacity
-                key={i}
-                style={[hubStyles.listItem, { backgroundColor: theme.surface }]}
-                onPress={() => item.screen && onNavigate(item.screen)}
-              >
-                <View style={[hubStyles.listIconBox, { backgroundColor: `${theme.primary}15` }]}>
-                  <MaterialIcons name={item.icon as any} size={20} color={theme.primary} />
-                </View>
-                <View style={hubStyles.listContent}>
-                  <Text style={hubStyles.listLabel}>{item.label}</Text>
-                  {item.subtitle && <Text style={[hubStyles.listSubtitle, { color: theme.primary }]}>{item.subtitle}</Text>}
-                </View>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 40 }}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+            >
+              <View style={hubStyles.list}>
+                {menuItems.map((item, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={[hubStyles.listItem, { backgroundColor: theme.surface }]}
+                    onPress={() => { onClose(); item.screen && onNavigate(item.screen); }}
+                  >
+                    <View style={[hubStyles.listIconBox, { backgroundColor: `${item.color}15` }]}>
+                      <MaterialIcons name={item.icon as any} size={24} color={item.color} />
+                    </View>
+                    <View style={hubStyles.listContent}>
+                      <Text style={hubStyles.listLabel}>{item.label}</Text>
+                      {item.subtitle && <Text style={[hubStyles.listSubtitle, { color: item.color }]}>{item.subtitle}</Text>}
+                    </View>
+                    <MaterialIcons name="chevron-right" size={20} color={theme.textSecondary} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity style={hubStyles.logoutButton} onPress={() => { onClose(); onLogout && onLogout(); }}>
+                <MaterialIcons name="logout" size={20} color={theme.error} />
+                <Text style={[hubStyles.logoutText, { color: theme.error }]}>LOG OUT</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-
-          <TouchableOpacity style={hubStyles.logoutButton}>
-            <MaterialIcons name="logout" size={20} color={theme.error} />
-            <Text style={[hubStyles.logoutText, { color: theme.error }]}>LOG OUT</Text>
+            </ScrollView>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       </TouchableOpacity>
     </Modal>
   );
@@ -692,17 +886,21 @@ const ContributorHubModal: React.FC<ContributorHubModalProps> = ({ visible, onCl
 // NEURAL INPUT MODAL - Redesigned with better UX
 // ============================================================================
 
-const NeuralInputModal: React.FC<{
+const NeuralInputModal = ({
+  visible,
+  onClose,
+  onNavigate,
+}: {
   visible: boolean;
   onClose: () => void;
-  onNavigate: (s: AppScreenName) => void;
-}> = ({ visible, onClose, onNavigate }) => {
+  onNavigate: (s: ScreenName) => void;
+}) => {
   const { theme } = useTheme();
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={modalStyles.overlay} activeOpacity={1} onPress={onClose}>
-        <View style={modalStyles.container}>
+        <View style={[modalStyles.container, { paddingBottom: 80 }]}>
           <View style={modalStyles.dragHandle} />
 
           <View style={modalStyles.header}>
@@ -713,17 +911,17 @@ const NeuralInputModal: React.FC<{
           <View style={modalStyles.content}>
             <TouchableOpacity
               style={modalStyles.cardWrapper}
-              onPress={() => { onClose(); onNavigate('ENVIRONMENTAL_SENSING'); }}
+              onPress={() => { onClose(); onNavigate(ScreenName.ENVIRONMENTAL_SENSING); }}
               activeOpacity={0.85}
             >
-              <LinearGradient colors={[theme.primary, theme.primaryDark]} style={modalStyles.inputCard}>
+              <LinearGradient colors={['#10b981', '#059669']} style={modalStyles.inputCard}>
                 <View style={modalStyles.cardContent}>
                   <View style={modalStyles.iconCircle}>
                     <MaterialIcons name="photo-camera" size={28} color="#fff" />
                   </View>
                   <View style={modalStyles.cardTextContainer}>
-                    <Text style={modalStyles.cardTitle}>Image & Camera</Text>
-                    <Text style={modalStyles.cardSubtitle}>Capture photos, label objects, scan signs</Text>
+                    <Text style={modalStyles.cardTitle}>Capture Data</Text>
+                    <Text style={modalStyles.cardSubtitle}>Photos, videos, and voice recordings</Text>
                   </View>
                 </View>
                 <MaterialIcons name="arrow-forward" size={24} color="rgba(255,255,255,0.6)" />
@@ -732,17 +930,16 @@ const NeuralInputModal: React.FC<{
 
             <TouchableOpacity
               style={modalStyles.cardWrapper}
-              onPress={() => { onClose(); onNavigate('LINGUASENSE_ENGINE'); }}
+              onPress={() => { onClose(); onNavigate(ScreenName.LINGUASENSE_ENGINE); }}
               activeOpacity={0.85}
             >
               <LinearGradient colors={['#8b5cf6', '#6366f1']} style={modalStyles.inputCard}>
                 <View style={modalStyles.cardContent}>
                   <View style={modalStyles.iconCircle}>
-                    <MaterialIcons name="mic" size={28} color="#fff" />
+                    <MaterialIcons name="translate" size={28} color="#fff" />
                   </View>
                   <View style={modalStyles.cardTextContainer}>
-                    <Text style={modalStyles.cardTitle}>Voice & Text</Text>
-                    <Text style={modalStyles.cardSubtitle}>Record audio, translate, rate responses</Text>
+                    <Text style={modalStyles.cardTitle}>XUM LinguaSense</Text>
                   </View>
                 </View>
                 <MaterialIcons name="arrow-forward" size={24} color="rgba(255,255,255,0.6)" />
@@ -755,100 +952,35 @@ const NeuralInputModal: React.FC<{
   );
 };
 
+
 // ============================================================================
 // WALLET SCREEN (REDESIGN PER IMAGE 4)
 // ============================================================================
 
-const WalletScreen: React.FC<{
-  onNavigate: (s: AppScreenName) => void;
-  balance: number;
-  transactions: Transaction[];
-  onOpenContributorHub: () => void;
-  onOpenNeuralInput: () => void;
-}> = ({ onNavigate, balance, transactions, onOpenContributorHub, onOpenNeuralInput }) => {
-  const { theme } = useTheme();
-
-  return (
-    <View style={[styles.screenContainer, { backgroundColor: theme.background }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => onNavigate('HOME')}>
-          <MaterialIcons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>WALLET</Text>
-        <View style={{ width: 24 }} />
-      </View>
-
-      <ScrollView style={styles.flex1} contentContainerStyle={styles.scrollContent}>
-        <LinearGradient colors={[theme.primary, theme.primaryDark]} style={walletStyles.balanceCardRedesign}>
-          <Text style={walletStyles.balanceLabelRedesign}>AVAILABLE BALANCE</Text>
-          <Text style={walletStyles.balanceValueRedesign}>${balance.toFixed(2)}</Text>
-
-          <View style={walletStyles.balanceActionsRedesign}>
-            <TouchableOpacity style={walletStyles.withdrawButtonRedesign}>
-              <Text style={walletStyles.withdrawTextRedesign}>WITHDRAW</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[walletStyles.addFundsButtonRedesign, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-              <MaterialIcons name="add" size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={walletStyles.cardIconRedesign}>
-            <MaterialIcons name="account-balance-wallet" size={120} color="rgba(255,255,255,0.1)" />
-          </View>
-        </LinearGradient>
-
-        <Text style={walletStyles.historyTitleRedesign}>HANDSHAKE HISTORY</Text>
-
-        {transactions.map((tx) => (
-          <View key={tx.id} style={[walletStyles.historyItemRedesign, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <View style={[walletStyles.historyIconBoxRedesign, { backgroundColor: `${theme.primary}15` }]}>
-              <MaterialIcons
-                name={tx.type === 'earn' ? 'image' : tx.type === 'withdraw' ? 'north-east' : 'verified'}
-                size={20}
-                color={theme.primary}
-              />
-            </View>
-            <View style={walletStyles.historyInfoRedesign}>
-              <Text style={walletStyles.historyTitleTextRedesign}>{tx.description.toUpperCase()}</Text>
-              <Text style={walletStyles.historyDateRedesign}>{tx.date.toUpperCase()}</Text>
-            </View>
-            <Text style={[
-              walletStyles.historyAmountRedesign,
-              tx.type === 'earn' ? { color: theme.success } : { color: '#fff' }
-            ]}>
-              {tx.type === 'earn' ? '+' : '-'}${Math.abs(tx.amount).toFixed(2)}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
-
-      <BottomNavigation
-        activeScreen="WALLET"
-        onNavigate={onNavigate}
-        onOpenNeuralInput={onOpenNeuralInput}
-        onOpenContributorHub={onOpenContributorHub}
-      />
-    </View>
-  );
-};
+// WalletScreen moved to external file
 
 // ============================================================================
 // BOTTOM NAVIGATION COMPONENT
 // ============================================================================
 
-const BottomNavigation: React.FC<{
-  activeScreen: AppScreenName;
-  onNavigate: (s: AppScreenName) => void;
+const BottomNavigation = ({
+  activeScreen,
+  onNavigate,
+  onOpenNeuralInput,
+  onOpenContributorHub,
+}: {
+  activeScreen: ScreenName;
+  onNavigate: (s: ScreenName) => void;
   onOpenNeuralInput: () => void;
   onOpenContributorHub: () => void;
-}> = ({ activeScreen, onNavigate, onOpenNeuralInput, onOpenContributorHub }) => {
+}) => {
   const { theme } = useTheme();
 
-  const navItems: { label: string; icon: string; screen?: AppScreenName; action?: () => void }[] = [
-    { label: 'HOME', icon: 'home', screen: 'HOME' },
-    { label: 'TASK', icon: 'explore', screen: 'TASK_MARKETPLACE' },
+  const navItems: { label: string; icon: string; screen?: ScreenName; action?: () => void }[] = [
+    { label: 'HOME', icon: 'home', screen: ScreenName.HOME },
+    { label: 'TASK', icon: 'explore', screen: ScreenName.TASK_MARKETPLACE },
     { label: 'ADD', icon: 'add', action: onOpenNeuralInput },
-    { label: 'WALLET', icon: 'account-balance-wallet', screen: 'WALLET' },
+    { label: 'WALLET', icon: 'account-balance-wallet', screen: ScreenName.WALLET },
     { label: 'MENU', icon: 'menu', action: onOpenContributorHub },
   ];
 
@@ -886,14 +1018,14 @@ const BottomNavigation: React.FC<{
 // SETTINGS SCREEN - Redesigned with user-friendly language
 // ============================================================================
 
-const SettingsScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ onNavigate }) => {
+const SettingsScreen = ({ onNavigate, onLogout, onBack }: { onNavigate: (s: ScreenName) => void; onLogout?: () => void; onBack?: () => void }) => {
   const { theme } = useTheme();
 
   const sections = [
     {
       title: 'ACCOUNT',
       items: [
-        { label: 'Profile', icon: 'person', value: 'Demo User', screen: 'PROFILE' as AppScreenName },
+        { label: 'Profile', icon: 'person', value: 'Demo User', screen: ScreenName.PROFILE },
         { label: 'Security', icon: 'shield', value: 'Verified' },
         { label: 'Payment Methods', icon: 'credit-card', value: '2 cards' },
       ],
@@ -901,7 +1033,7 @@ const SettingsScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ 
     {
       title: 'APP SETTINGS',
       items: [
-        { label: 'Appearance', icon: 'palette', value: 'Dark', screen: 'APPEARANCE_LABS' as AppScreenName },
+        { label: 'Appearance', icon: 'palette', value: 'Dark', screen: ScreenName.APPEARANCE_LABS },
         { label: 'Notifications', icon: 'notifications', value: 'On' },
         { label: 'Language', icon: 'language', value: 'English' },
         { label: 'Data & Storage', icon: 'storage', value: '14.2 MB' },
@@ -910,7 +1042,7 @@ const SettingsScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ 
     {
       title: 'SUPPORT',
       items: [
-        { label: 'Help Center', icon: 'help', value: '' },
+        { label: 'Help Center', icon: 'help', value: '', screen: ScreenName.SUPPORT },
         { label: 'Report a Problem', icon: 'flag', value: '' },
         { label: 'Privacy Policy', icon: 'policy', value: '' },
         { label: 'Terms of Service', icon: 'description', value: '' },
@@ -928,7 +1060,7 @@ const SettingsScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ 
   return (
     <View style={[styles.screenContainer, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => onNavigate('HOME')}>
+        <TouchableOpacity onPress={() => onBack ? onBack() : onNavigate(ScreenName.HOME)}>
           <MaterialIcons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>SETTINGS</Text>
@@ -959,7 +1091,7 @@ const SettingsScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ 
           </View>
         ))}
 
-        <TouchableOpacity style={[settingsStyles.logoutButton, { borderColor: theme.error }]}>
+        <TouchableOpacity style={[settingsStyles.logoutButton, { borderColor: theme.error }]} onPress={onLogout}>
           <MaterialIcons name="logout" size={20} color={theme.error} />
           <Text style={[settingsStyles.logoutText, { color: theme.error }]}>Log Out</Text>
         </TouchableOpacity>
@@ -975,131 +1107,168 @@ const SettingsScreen: React.FC<{ onNavigate: (s: AppScreenName) => void }> = ({ 
 // ============================================================================
 
 interface TaskMarketplaceProps {
-  onNavigate: (s: AppScreenName) => void;
+  onNavigate: (s: ScreenName) => void;
   onOpenContributorHub: () => void;
   onOpenNeuralInput: () => void;
+  session: any;
+  onBack?: () => void;
 }
 
-const TaskMarketplaceScreen: React.FC<TaskMarketplaceProps> = ({ onNavigate, onOpenContributorHub, onOpenNeuralInput }) => {
+const TaskMarketplaceScreen = ({ onNavigate, onOpenContributorHub, onOpenNeuralInput, session, onBack }: TaskMarketplaceProps) => {
+  const { theme } = useTheme();
   const [activeFilter, setActiveFilter] = useState('ALL');
+  const [isFilterVisible, setIsFilterVisible] = useState(false);
+  const [featuredTasks, setFeaturedTasks] = useState<any[]>([]);
+  const [missions, setMissions] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const filters = ['ALL', 'AUDIO', 'TEXT', 'IMAGE'];
 
-  const featuredTasks = [
-    { id: 'f1', title: 'AI PERCEPTION LAB', subtitle: 'Validate object depth in 3D lidar scans.', xp: 50, time: '3M', reward: 2.50, colors: ['#7c3aed', '#a855f7'] as [string, string] },
-    { id: 'f2', title: 'NEURAL ALIGNMENT', subtitle: 'Review high-stakes AI safety.', xp: 35, time: '2M', reward: 1.80, colors: ['#ec4899', '#f43f5e'] as [string, string] },
-  ];
-
-  const missions = [
-    { id: 'm1', title: 'STREET SIGN LABELING', time: '2M', xp: 25, reward: 0.50, icon: 'image', color: '#3b82f6' },
-    { id: 'm2', title: 'LOCAL DIALECT RECORDING', time: '5M', xp: 50, reward: 1.25, icon: 'mic', color: '#8b5cf6' },
-    { id: 'm3', title: 'SENTIMENT ANALYSIS', time: '1M', xp: 10, reward: 0.15, icon: 'description', color: '#06b6d4' },
-    { id: 'm4', title: 'OBJECT DETECTION', time: '3M', xp: 30, reward: 0.75, icon: 'image-search', color: '#f97316' },
-  ];
+  useEffect(() => {
+    const loadTasks = async () => {
+      if (!session?.user?.id) return;
+      setIsLoading(true);
+      try {
+        const [f, m] = await Promise.all([
+          TaskService.getFeaturedTasks(),
+          TaskService.getDailyMissions(session.user.id)
+        ]);
+        setFeaturedTasks(f);
+        setMissions(m);
+      } catch (err) {
+        console.error("Error loading marketplace tasks:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadTasks();
+  }, [session?.user?.id]);
 
   return (
-    <View style={styles.screenContainer}>
+    <View style={[styles.screenContainer, { backgroundColor: theme.background }]}>
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => onNavigate('HOME')}>
-          <MaterialIcons name="arrow-back" size={24} color={colors.textSecondary} />
+      <View style={[styles.header, { borderBottomColor: theme.border }]}>
+        <TouchableOpacity onPress={() => onBack ? onBack() : onNavigate(ScreenName.HOME)}>
+          <MaterialIcons name="arrow-back" size={24} color={theme.textSecondary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>TASK</Text>
+        <Text style={[styles.headerTitle, { color: theme.text }]}>TASK</Text>
         <TouchableOpacity>
-          <MaterialIcons name="refresh" size={24} color={colors.textSecondary} />
+          <MaterialIcons name="refresh" size={24} color={theme.textSecondary} />
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.flex1} showsVerticalScrollIndicator={false}>
-        {/* Search Bar */}
-        <View style={taskStyles.searchContainer}>
-          <MaterialIcons name="search" size={20} color={colors.textSecondary} />
+        {/* Search Bar with Filter Icon */}
+        <View style={[taskStyles.searchContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <MaterialIcons name="search" size={20} color={theme.textSecondary} />
           <TextInput
-            style={taskStyles.searchInput}
-            placeholder="Search active protocols..."
-            placeholderTextColor={colors.textSecondary}
+            style={[taskStyles.searchInput, { color: theme.text }]}
+            placeholder="Search"
+            placeholderTextColor={theme.textSecondary}
           />
+          <TouchableOpacity onPress={() => setIsFilterVisible(true)} style={{ padding: 4 }}>
+            <MaterialIcons name="tune" size={20} color={theme.primary} />
+          </TouchableOpacity>
         </View>
 
-        {/* Filter Pills */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={taskStyles.filterRow}>
-          {filters.map((filter) => (
-            <TouchableOpacity
-              key={filter}
-              style={[taskStyles.filterPill, activeFilter === filter && taskStyles.filterPillActive]}
-              onPress={() => setActiveFilter(filter)}
-            >
-              <Text style={[taskStyles.filterText, activeFilter === filter && taskStyles.filterTextActive]}>
-                {filter}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {/* Filter Modal */}
+        <Modal visible={isFilterVisible} transparent animationType="fade" onRequestClose={() => setIsFilterVisible(false)}>
+          <TouchableOpacity
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' }}
+            activeOpacity={1}
+            onPress={() => setIsFilterVisible(false)}
+          >
+            <View style={{ backgroundColor: theme.surface, padding: 24, borderRadius: 24, width: '80%', gap: 12 }}>
+              <Text style={[styles.sectionTitle, { marginBottom: 16 }]}>FILTER BY TYPE</Text>
+              {filters.map((filter) => (
+                <TouchableOpacity
+                  key={filter}
+                  style={[
+                    taskStyles.filterPill,
+                    { width: '100%', marginBottom: 12, backgroundColor: activeFilter === filter ? theme.primary : 'rgba(255,255,255,0.05)' }
+                  ]}
+                  onPress={() => { setActiveFilter(filter); setIsFilterVisible(false); }}
+                >
+                  <Text style={[taskStyles.filterText, { color: activeFilter === filter ? '#fff' : theme.textSecondary }]}>
+                    {filter}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
 
         {/* Laboratory Card */}
         <View style={taskStyles.labCard}>
-          <LinearGradient colors={['#1e2330', '#2d3548']} style={taskStyles.labGradient}>
-            <View style={taskStyles.labBadge}>
-              <Text style={taskStyles.labBadgeText}>LABORATORY</Text>
+          <LinearGradient colors={[theme.surface, theme.background]} style={[taskStyles.labGradient, { borderColor: theme.border, borderWidth: 1, borderRadius: 24 }]}>
+            <View style={[taskStyles.labBadge, { backgroundColor: `${theme.primary}20` }]}>
+              <Text style={[taskStyles.labBadgeText, { color: theme.primary }]}>LABORATORY</Text>
             </View>
-            <Text style={taskStyles.labTitle}>TRAIN YOUR{'\n'}OWN AI</Text>
-            <Text style={taskStyles.labSubtitle}>Personalize models with your data and preferences.</Text>
-            <TouchableOpacity style={taskStyles.labButton} onPress={() => onNavigate('ENVIRONMENTAL_SENSING')}>
-              <Text style={taskStyles.labButtonText}>OPEN NEURAL LAB</Text>
-              <MaterialIcons name="arrow-forward" size={16} color={colors.primary} />
+            <Text style={[taskStyles.labTitle, { color: theme.text }]}>TRAIN YOUR{'\n'}OWN AI</Text>
+            <Text style={[taskStyles.labSubtitle, { color: theme.textSecondary }]}>Personalize models with your data and preferences.</Text>
+            <TouchableOpacity style={taskStyles.labButton} onPress={() => onNavigate(ScreenName.ENVIRONMENTAL_SENSING)}>
+              <Text style={[taskStyles.labButtonText, { color: theme.primary }]}>OPEN NEURAL LAB</Text>
+              <MaterialIcons name="arrow-forward" size={16} color={theme.primary} />
             </TouchableOpacity>
             <View style={taskStyles.labIcon}>
-              <MaterialIcons name="psychology" size={80} color="rgba(19, 73, 236, 0.3)" />
+              <MaterialIcons name="psychology" size={80} color={`${theme.primary}25`} />
             </View>
           </LinearGradient>
         </View>
 
         {/* Featured Tasks */}
-        <Text style={[styles.sectionTitle, { paddingHorizontal: 16, marginTop: 24 }]}>FEATURED TASKS</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={taskStyles.featuredRow}
-        >
-          {featuredTasks.map((task) => (
-            <TouchableOpacity key={task.id} onPress={() => onNavigate('TASK_DETAILS')}>
-              <LinearGradient colors={task.colors} style={taskStyles.featuredCard}>
-                <View style={taskStyles.featuredBadge}>
-                  <Text style={taskStyles.featuredBadgeText}>PRIORITY CONTRACT</Text>
-                </View>
-                <Text style={taskStyles.featuredTitle}>{task.title}</Text>
-                <Text style={taskStyles.featuredSubtitle}>{task.subtitle}</Text>
-                <View style={taskStyles.featuredFooter}>
-                  <View style={taskStyles.featuredMeta}>
-                    <Text style={taskStyles.featuredXp}>⚡ {task.xp} XP</Text>
-                    <Text style={taskStyles.featuredTime}>⏱ {task.time}</Text>
+        <Text style={[styles.sectionTitle, { paddingHorizontal: 16, marginTop: 24, color: theme.text }]}>FEATURED TASKS</Text>
+        {isLoading && featuredTasks.length === 0 ? (
+          <ActivityIndicator color={theme.primary} style={{ marginTop: 40 }} />
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={[taskStyles.featuredRow, { paddingLeft: 16, paddingRight: 32 }]}
+          >
+            {featuredTasks.map((task) => (
+              <TouchableOpacity key={task.id} onPress={() => onNavigate(ScreenName.TASK_DETAILS)} style={{ marginRight: 16 }}>
+                <LinearGradient colors={[task.gradient_start || theme.primary, task.gradient_end || theme.primaryDark]} style={taskStyles.featuredCard}>
+                  <View style={taskStyles.featuredBadge}>
+                    <Text style={taskStyles.featuredBadgeText}>PRIORITY CONTRACT</Text>
                   </View>
-                  <Text style={taskStyles.featuredReward}>${task.reward.toFixed(2)}</Text>
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+                  <Text style={taskStyles.featuredTitle}>{task.title}</Text>
+                  <Text style={taskStyles.featuredSubtitle}>{task.subtitle}</Text>
+                  <View style={taskStyles.featuredFooter}>
+                    <Text style={taskStyles.featuredTime}>⏱ {task.time}</Text>
+                    <Text style={taskStyles.featuredReward}>${(task.reward || 0).toFixed(2)}</Text>
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
 
         {/* Available Missions */}
-        <Text style={[styles.sectionTitle, { paddingHorizontal: 16, marginTop: 24, marginBottom: 16 }]}>
+        <Text style={[styles.sectionTitle, { paddingHorizontal: 16, marginTop: 24, marginBottom: 16, color: theme.text }]}>
           AVAILABLE MISSIONS
         </Text>
         <View style={{ paddingHorizontal: 16, paddingBottom: 40 }}>
-          {missions.map((mission) => (
-            <TouchableOpacity key={mission.id} onPress={() => onNavigate('TASK_DETAILS')} style={styles.missionCard}>
-              <View style={[styles.missionIconBox, { backgroundColor: `${mission.color}20` }]}>
-                <MaterialIcons name={mission.icon as any} size={22} color={mission.color} />
-              </View>
-              <View style={styles.missionInfo}>
-                <Text style={styles.missionTitle}>{mission.title}</Text>
-                <View style={styles.missionMeta}>
-                  <Text style={styles.missionTime}>⏱ {mission.time}</Text>
-                  <Text style={styles.missionXp}>⚡ {mission.xp} XP</Text>
+          {isLoading && missions.length === 0 ? (
+            <ActivityIndicator color={theme.primary} style={{ marginTop: 20 }} />
+          ) : missions.length > 0 ? (
+            missions.map((mission) => (
+              <TouchableOpacity key={mission.id} onPress={() => onNavigate(mission.target_screen || ScreenName.TASK_DETAILS)} style={[styles.missionCard, { backgroundColor: theme.surface, borderColor: theme.border, opacity: mission.is_locked_for_new_users ? 0.6 : 1 }]} disabled={mission.is_locked_for_new_users}>
+                <View style={[styles.missionIconBox, { backgroundColor: `${mission.icon_color || theme.primary}20` }]}>
+                  <MaterialIcons name={(mission.icon_name || 'assignment') as any} size={18} color={mission.icon_color || theme.primary} />
                 </View>
-              </View>
-              <Text style={styles.missionReward}>${mission.reward.toFixed(2)}</Text>
-            </TouchableOpacity>
-          ))}
+                <View style={styles.missionInfo}>
+                  <Text style={[styles.missionTitle, { color: theme.text }]}>{mission.title}</Text>
+                  <Text style={[styles.missionTime, { color: theme.textSecondary }]}>⏱ {mission.estimated_time || '2M'}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.missionReward, { color: theme.success }]}>${(mission.reward || 0).toFixed(2)}</Text>
+                  {mission.is_locked_for_new_users && <MaterialIcons name="lock" size={14} color={theme.textSecondary} />}
+                </View>
+              </TouchableOpacity>
+            ))
+          ) : (
+            <Text style={{ color: theme.textSecondary, textAlign: 'center', marginTop: 20 }}>No missions available.</Text>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -1107,16 +1276,26 @@ const TaskMarketplaceScreen: React.FC<TaskMarketplaceProps> = ({ onNavigate, onO
 };
 
 // ============================================================================
+// VOICE TASK SCREEN
+// ============================================================================
+
+// Inline task screens removed as they are now imported from ./screens/tasks/
+
+
+// ============================================================================
 // SIMPLE PLACEHOLDER SCREENS
 // ============================================================================
 
-const PlaceholderScreen: React.FC<{ title: string; onNavigate: (s: AppScreenName) => void }> = ({
-  title,
-  onNavigate,
-}) => (
+// ============================================================================
+// LEADERBOARD SCREEN
+// ============================================================================
+
+// LeaderboardScreen, XumJudgeScreen, and RecordsScreen moved to external files
+
+const PlaceholderScreen = ({ title, onNavigate }: { title: string; onNavigate: (s: ScreenName) => void }) => (
   <View style={styles.screenContainer}>
     <View style={styles.header}>
-      <TouchableOpacity onPress={() => onNavigate('HOME')}>
+      <TouchableOpacity onPress={() => onNavigate(ScreenName.HOME)}>
         <MaterialIcons name="arrow-back" size={24} color={colors.textSecondary} />
       </TouchableOpacity>
       <Text style={styles.headerTitle}>{title}</Text>
@@ -1134,72 +1313,148 @@ const PlaceholderScreen: React.FC<{ title: string; onNavigate: (s: AppScreenName
 // ============================================================================
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<AppScreenName>('SPLASH');
+  const [currentScreen, setCurrentScreen] = useState<ScreenName>(ScreenName.SPLASH);
+  const [history, setHistory] = useState<ScreenName[]>([]);
   const [isNeuralInputVisible, setIsNeuralInputVisible] = useState(false);
   const [isContributorHubVisible, setIsContributorHubVisible] = useState(false);
-  const [balance, setBalance] = useState(247.50);
+  const [balance, setBalance] = useState(0);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  // User session state
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState('');
+
   const [currentTheme, setCurrentTheme] = useState<ThemeId>('solar');
-  const [transactions, setTransactions] = useState<Transaction[]>([
-    { id: '1', type: 'earn', amount: 2.50, description: 'Task Reward: Image Labeling', date: 'Today, 10:42 AM' },
-    { id: '2', type: 'withdraw', amount: 100.00, description: 'Withdrawal to PayPal', date: 'Yesterday' },
-    { id: '3', type: 'bonus', amount: 5.00, description: 'Quality Bonus', date: 'Nov 12' },
-  ]);
 
-  // Update global colors when theme changes
+  // Load theme from storage & handle Supabase Auth Session
   useEffect(() => {
-    colors = themePresets[currentTheme];
-  }, [currentTheme]);
+    // Load theme
+    AsyncStorage.getItem('themeId').then(themeId => {
+      if (themeId && themePresets[themeId as ThemeId]) {
+        setCurrentTheme(themeId as ThemeId);
+        colors = themePresets[themeId as ThemeId]; // Update legacy colors
+      }
+    });
 
-  const navigate = (screen: AppScreenName) => {
+    // Check current session
+    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+      setSession(currentSession);
+      if (currentSession) {
+        setCurrentScreen(ScreenName.HOME);
+      }
+      setLoading(false);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, authSession) => {
+      setSession(authSession);
+      if (authSession) {
+        setCurrentScreen(ScreenName.HOME);
+      } else if (_event === 'SIGNED_OUT') {
+        setCurrentScreen(ScreenName.AUTH);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Load Balance & Transactions
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    const loadWalletData = async () => {
+      const [userBalance, history] = await Promise.all([
+        TaskService.getUserBalance(session.user.id),
+        TaskService.getTransactionHistory(session.user.id)
+      ]);
+      setBalance(userBalance);
+      setTransactions(history);
+    };
+
+    loadWalletData();
+
+    // Set up real-time listener for balance
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'transactions', filter: `user_id=eq.${session.user.id}` },
+        () => loadWalletData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id]);
+
+  // Handle Deep Linking (Magic Links / Password Reset)
+  useEffect(() => {
+    const handleDeepLink = (url: string | null) => {
+      if (!url) return;
+      const parsed = Linking.parse(url);
+      if (parsed.path === 'auth-callback' || url.includes('access_token=')) {
+        // Potential callback logic
+      }
+    };
+
+    Linking.getInitialURL().then(handleDeepLink);
+    const subscription = Linking.addEventListener('url', (event) => handleDeepLink(event.url));
+
+    return () => subscription.remove();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      // Sign out from Supabase to clear any cached session
+      // Clerk signOut is handled by the useClerk hook which we can't use here
+      // However, once signed out from Supabase, the app will show SignedOut component
+      await supabase.auth.signOut();
+      // Force Clerk signout using a window message (for web)
+      if (typeof window !== 'undefined' && (window as any).__clerk_frontend_api) {
+        (window as any).__clerk_frontend_api.signOut();
+      }
+    } catch (err) {
+      console.error('Error logging out:', err);
+    }
+  };
+
+  const navigate = (screen: ScreenName, params?: any) => {
+    // Prevent pushing duplicate screens or pushing HOME
+    if (screen === ScreenName.HOME) {
+      setHistory([]);
+    } else if (currentScreen !== screen && currentScreen !== ScreenName.SPLASH && currentScreen !== ScreenName.ONBOARDING) {
+      setHistory(prev => [...prev, currentScreen]);
+    }
+
     setCurrentScreen(screen);
     setIsNeuralInputVisible(false);
     setIsContributorHubVisible(false);
+    if (params?.email) setUserEmail(params.email);
+  };
+
+  const goBack = () => {
+    if (history.length > 0) {
+      const prev = history[history.length - 1];
+      setHistory(h => h.slice(0, -1));
+      setCurrentScreen(prev);
+    } else {
+      // Default fallback
+      setCurrentScreen(ScreenName.HOME);
+    }
   };
 
   const handleThemeChange = (themeId: ThemeId) => {
     setCurrentTheme(themeId);
-    colors = themePresets[themeId];
+    colors = themePresets[themeId]; // Update legacy colors
+    AsyncStorage.setItem('themeId', themeId);
   };
 
   // Get current theme colors for dynamic styling
   const theme = themePresets[currentTheme];
-
-  const renderScreen = () => {
-    switch (currentScreen) {
-      case 'SPLASH':
-        return <AuthSplashScreen onNavigate={(s) => navigate(s as AppScreenName)} />;
-      case 'ONBOARDING':
-        return <AuthOnboardingScreen onNavigate={(s) => navigate(s as AppScreenName)} />;
-      case 'AUTH':
-        return <AuthScreen onNavigate={(s) => navigate(s as AppScreenName)} />;
-      case 'FORGOT_PASSWORD':
-        return <ForgotPasswordScreen onNavigate={(s) => navigate(s as AppScreenName)} />;
-      case 'OTP_VERIFICATION':
-        return <OTPScreen onNavigate={(s) => navigate(s as AppScreenName)} />;
-      case 'HOME':
-        return <HomeScreen onNavigate={navigate} balance={balance} onOpenNeuralInput={() => setIsNeuralInputVisible(true)} onOpenContributorHub={() => setIsContributorHubVisible(true)} />;
-      case 'WALLET':
-        return <WalletScreen onNavigate={navigate} balance={balance} transactions={transactions} onOpenContributorHub={() => setIsContributorHubVisible(true)} onOpenNeuralInput={() => setIsNeuralInputVisible(true)} />;
-      case 'SETTINGS':
-        return <SettingsScreen onNavigate={navigate} />;
-      case 'PROFILE':
-        return <ProfileScreen onNavigate={navigate} />;
-      case 'LEADERBOARD':
-        return <PlaceholderScreen title="LEADERBOARD" onNavigate={navigate} />;
-      case 'TASK_MARKETPLACE':
-        return <TaskMarketplaceScreen onNavigate={navigate} onOpenContributorHub={() => setIsContributorHubVisible(true)} onOpenNeuralInput={() => setIsNeuralInputVisible(true)} />;
-      case 'TASK_DETAILS':
-        return <PlaceholderScreen title="TASK DETAILS" onNavigate={navigate} />;
-      case 'ENVIRONMENTAL_SENSING':
-        return <EnvironmentalSensingScreen onNavigate={navigate} />;
-      case 'LINGUASENSE_ENGINE':
-        return <LinguaSenseEngineScreen onNavigate={navigate} />;
-      case 'APPEARANCE_LABS':
-        return <AppearanceLabsScreen onNavigate={navigate} currentTheme={currentTheme} onThemeChange={handleThemeChange} />;
-      default:
-        return <HomeScreen onNavigate={navigate} balance={balance} onOpenNeuralInput={() => setIsNeuralInputVisible(true)} onOpenContributorHub={() => setIsContributorHubVisible(true)} />;
-    }
-  };
 
   // Theme context value
   const themeContextValue: ThemeContextType = {
@@ -1208,25 +1463,155 @@ export default function App() {
     setTheme: handleThemeChange,
   };
 
+  // Render the component
   return (
-    <ThemeContext.Provider value={themeContextValue}>
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        {renderScreen()}
-        <NeuralInputModal
-          visible={isNeuralInputVisible}
-          onClose={() => setIsNeuralInputVisible(false)}
-          onNavigate={navigate}
-        />
-        <ContributorHubModal
-          visible={isContributorHubVisible}
-          onClose={() => setIsContributorHubVisible(false)}
-          onNavigate={navigate}
+    <ClerkProvider>
+      <ThemeContext.Provider value={themeContextValue}>
+        <AppContent
+          currentScreen={currentScreen}
+          navigate={navigate}
+          balance={balance}
+          isNeuralInputVisible={isNeuralInputVisible}
+          setIsNeuralInputVisible={setIsNeuralInputVisible}
+          isContributorHubVisible={isContributorHubVisible}
+          setIsContributorHubVisible={setIsContributorHubVisible}
+          userEmail={userEmail}
+          transactions={transactions}
           currentTheme={currentTheme}
+          handleThemeChange={handleThemeChange}
+          handleLogout={handleLogout}
+          goBack={goBack}
         />
-      </SafeAreaView>
-    </ThemeContext.Provider>
+      </ThemeContext.Provider>
+    </ClerkProvider>
   );
 }
+
+/**
+ * Sub-component to use Clerk hooks inside ClerkProvider
+ */
+const AppContent = ({
+  currentScreen,
+  navigate,
+  balance,
+  isNeuralInputVisible,
+  setIsNeuralInputVisible,
+  isContributorHubVisible,
+  setIsContributorHubVisible,
+  userEmail,
+  transactions,
+  currentTheme,
+  handleThemeChange,
+  handleLogout,
+  goBack
+}: any) => {
+  const { theme } = useTheme();
+  const { isLoaded, isSignedIn, user } = useUser();
+  const { signOut } = useClerk();
+
+  // Sync Clerk auth state to currentScreen and session-like behavior
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    // If we're on a "member only" screen but not signed in, go to AUTH (unless on SPLASH/ONBOARDING)
+    const publicScreens = [ScreenName.SPLASH, ScreenName.ONBOARDING, ScreenName.AUTH, ScreenName.FORGOT_PASSWORD, ScreenName.OTP_VERIFICATION];
+    if (!isSignedIn && !publicScreens.includes(currentScreen)) {
+      navigate(ScreenName.AUTH);
+    }
+
+    // If we just signed in and are on AUTH screen, go to HOME
+    if (isSignedIn && currentScreen === ScreenName.AUTH) {
+      navigate(ScreenName.HOME);
+    }
+  }, [isLoaded, isSignedIn, currentScreen]);
+
+  const handleClerkLogout = async () => {
+    try {
+      await signOut();
+      await supabase.auth.signOut();
+      navigate(ScreenName.AUTH);
+    } catch (err) {
+      console.error('Error logging out:', err);
+    }
+  };
+
+  const renderScreen = () => {
+    // If not loaded yet, show minimal splash/loading
+    if (!isLoaded) {
+      return (
+        <View style={[styles.splashContainer, { backgroundColor: theme.background }]}>
+          <ActivityIndicator size="large" color={theme.primary} />
+        </View>
+      );
+    }
+
+    switch (currentScreen) {
+      case ScreenName.SPLASH:
+        return <AuthSplashScreen onNavigate={navigate} />;
+      case ScreenName.ONBOARDING:
+        return <AuthOnboardingScreen onNavigate={navigate} />;
+      case ScreenName.AUTH:
+        // Use the COLOURFULL Auth Screen (retaining design)
+        return <AuthScreen onNavigate={navigate} />;
+      case ScreenName.FORGOT_PASSWORD:
+        return <ForgotPasswordScreen onNavigate={navigate} />;
+      case ScreenName.OTP_VERIFICATION:
+        return <OTPScreen onNavigate={navigate} userEmail={userEmail} />;
+      case ScreenName.HOME:
+        return <HomeScreen onNavigate={navigate} balance={balance} onOpenNeuralInput={() => setIsNeuralInputVisible(true)} onOpenContributorHub={() => setIsContributorHubVisible(true)} session={{ user }} />;
+      case ScreenName.WALLET:
+        return <WalletScreen onNavigate={navigate} onBack={goBack} balance={balance} transactions={transactions} onOpenContributorHub={() => setIsContributorHubVisible(true)} onOpenNeuralInput={() => setIsNeuralInputVisible(true)} session={{ user }} />;
+      case ScreenName.SETTINGS:
+        return <SettingsScreen onNavigate={navigate} onLogout={handleClerkLogout} onBack={goBack} />;
+      case ScreenName.PROFILE:
+        return <ProfileScreen onNavigate={navigate} onBack={goBack} session={{ user }} />;
+      case ScreenName.EDIT_PROFILE:
+        return <EditProfileScreen onNavigate={navigate} onBack={goBack} session={{ user }} />;
+      case ScreenName.LEADERBOARD:
+        return <LeaderboardScreen onNavigate={navigate} onBack={goBack} session={{ user }} />;
+      case ScreenName.XUM_JUDGE:
+        return <XumJudgeScreen onNavigate={navigate} session={{ user }} />;
+      case ScreenName.TASK_MARKETPLACE:
+        return <TaskMarketplaceScreen onNavigate={navigate} onBack={goBack} onOpenNeuralInput={() => setIsNeuralInputVisible(true)} onOpenContributorHub={() => setIsContributorHubVisible(true)} session={{ user }} />;
+      case ScreenName.ENVIRONMENTAL_SENSING:
+        return <EnvironmentalSensingScreen onNavigate={navigate} />;
+      case ScreenName.LINGUASENSE_ENGINE:
+        return <LinguaSenseEngineScreen onNavigate={navigate} />;
+      case ScreenName.VOICE_TASK:
+        return <VoiceTaskScreen onNavigate={navigate} />;
+      case ScreenName.IMAGE_TASK:
+        return <ImageTaskScreen onNavigate={navigate} />;
+      case ScreenName.VIDEO_TASK:
+        return <VideoTaskScreen onNavigate={navigate} />;
+      case ScreenName.RECORDS:
+        return <RecordsScreen onNavigate={navigate} session={{ user }} />;
+      case ScreenName.SUPPORT:
+        return <SupportScreen onNavigate={navigate} onBack={goBack} />;
+      case ScreenName.APPEARANCE_LABS:
+        return <AppearanceLabsScreen onNavigate={navigate} currentTheme={currentTheme} onThemeChange={handleThemeChange} />;
+      default:
+        return <HomeScreen onNavigate={navigate} balance={balance} onOpenNeuralInput={() => setIsNeuralInputVisible(true)} onOpenContributorHub={() => setIsContributorHubVisible(true)} session={{ user }} />;
+    }
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      {renderScreen()}
+      <NeuralInputModal
+        visible={isNeuralInputVisible}
+        onClose={() => setIsNeuralInputVisible(false)}
+        onNavigate={navigate}
+      />
+      <ContributorHubModal
+        visible={isContributorHubVisible}
+        onClose={() => setIsContributorHubVisible(false)}
+        onNavigate={navigate}
+        currentTheme={currentTheme}
+        onLogout={handleClerkLogout}
+      />
+    </SafeAreaView>
+  );
+};
 
 // ============================================================================
 // STYLES
@@ -1276,11 +1661,11 @@ const styles = StyleSheet.create({
   },
   splashTitle: {
     fontSize: 48,
-    fontWeight: '900',
+    fontWeight: '700',
     color: '#fff',
     letterSpacing: 8,
     textAlign: 'center',
-    marginLeft: 8, // Offset for letterSpacing
+    marginLeft: 8,
   },
   splashLine: {
     width: 40,
@@ -1367,8 +1752,8 @@ const styles = StyleSheet.create({
   },
   slideTitle: {
     fontSize: 34,
-    fontWeight: '900',
-    color: '#fff',
+    fontWeight: '700',
+    color: '#fff', // Stays white because it's on a dark splash/gradient background
     lineHeight: 42,
   },
   slideDesc: {
@@ -1416,8 +1801,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 16,
-    fontWeight: '800',
-    color: '#fff',
+    fontWeight: '600',
+    color: colors.text,
     letterSpacing: 3,
   },
 
@@ -1425,6 +1810,9 @@ const styles = StyleSheet.create({
   homeHeader: {
     marginBottom: 28,
     paddingTop: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   welcomeText: {
     fontSize: 16,
@@ -1434,8 +1822,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   agentText: {
-    fontSize: 36,
-    fontWeight: '900',
+    fontSize: 34,
+    fontWeight: '700',
     color: colors.primary,
     letterSpacing: 1,
   },
@@ -1475,10 +1863,10 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   statValue: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: -1,
+    fontSize: 28,
+    fontWeight: '700',
+    color: colors.text,
+    letterSpacing: -0.5,
   },
   statSubtext: {
     fontSize: 10,
@@ -1539,7 +1927,7 @@ const styles = StyleSheet.create({
   },
   networkTitle: {
     fontSize: 26,
-    fontWeight: '900',
+    fontWeight: '700',
     color: '#fff',
     marginBottom: 6,
     letterSpacing: -0.5,
@@ -1564,10 +1952,10 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   networkNodeValue: {
-    fontSize: 40,
-    fontWeight: '900',
+    fontSize: 36,
+    fontWeight: '700',
     color: '#fff',
-    letterSpacing: -2,
+    letterSpacing: -1,
   },
   rankChange: {
     fontSize: 11,
@@ -1585,10 +1973,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   sectionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: 2.5,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+    letterSpacing: 2,
   },
   sectionLink: {
     fontSize: 12,
@@ -1625,10 +2013,10 @@ const styles = StyleSheet.create({
   },
   judgeTitle: {
     fontSize: 15,
-    fontWeight: '800',
-    color: '#fff',
+    fontWeight: '700',
+    color: colors.text,
     marginBottom: 6,
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
   judgeSubtitle: {
     fontSize: 13,
@@ -1640,8 +2028,8 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   judgeRewardValue: {
-    fontSize: 20,
-    fontWeight: '900',
+    fontSize: 18,
+    fontWeight: '700',
     color: colors.primary,
     marginBottom: 4,
   },
@@ -1650,6 +2038,90 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textSecondary,
     letterSpacing: 0.5,
+  },
+
+  // Featured Promo Cards
+  featuredPromoCard: {
+    borderRadius: 24,
+    padding: 24,
+    minHeight: 160,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  featuredPromoContent: {
+    flex: 1,
+    zIndex: 1,
+  },
+  featuredPromoBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    alignSelf: 'flex-start',
+    marginBottom: 12,
+  },
+  featuredPromoBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 1,
+  },
+  featuredPromoTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  featuredPromoSubtitle: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+    lineHeight: 20,
+    marginBottom: 16,
+    maxWidth: '80%',
+  },
+  featuredPromoCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  featuredPromoCtaText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 1,
+  },
+  featuredPromoIconBg: {
+    position: 'absolute',
+    left: -20,
+    bottom: -20,
+    opacity: 0.3,
+  },
+
+  // Smaller Featured Cards for Horizontal Scroll
+  featuredPromoCardSmall: {
+    width: 260,
+    borderRadius: 20,
+    padding: 16,
+    minHeight: 140,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  featuredPromoTitleSmall: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 6,
+  },
+  featuredPromoSubtitleSmall: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.75)',
+    lineHeight: 16,
+  },
+  featuredPromoIconBgRight: {
+    position: 'absolute',
+    right: -15,
+    bottom: -15,
+    opacity: 0.4,
   },
 
   // Mission Card - Larger, better touch target
@@ -1679,7 +2151,7 @@ const styles = StyleSheet.create({
   missionTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#fff',
+    color: colors.text,
     marginBottom: 8,
     letterSpacing: 0.3,
   },
@@ -1816,7 +2288,7 @@ const styles = StyleSheet.create({
   transactionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#fff',
+    color: colors.text,
   },
   transactionDate: {
     fontSize: 12,
@@ -1854,7 +2326,7 @@ const styles = StyleSheet.create({
   settingLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#fff',
+    color: colors.text,
     letterSpacing: 1,
   },
   settingValue: {
@@ -1896,7 +2368,7 @@ const taskStyles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 14,
-    color: '#fff',
+    color: colors.text,
     marginLeft: 12,
   },
   filterRow: {
@@ -1952,7 +2424,7 @@ const taskStyles = StyleSheet.create({
   labTitle: {
     fontSize: 26,
     fontWeight: '900',
-    color: '#fff',
+    color: '#fff', // Typically on primary background, keeping white
     marginBottom: 8,
     lineHeight: 32,
   },
@@ -1984,7 +2456,7 @@ const taskStyles = StyleSheet.create({
     gap: 12,
   },
   featuredCard: {
-    width: 200,
+    width: 260,
     borderRadius: 20,
     padding: 20,
     marginRight: 12,
@@ -2036,6 +2508,143 @@ const taskStyles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '800',
     color: '#fff',
+  },
+});
+
+// ============================================================================
+// CAPTURE STYLES
+// ============================================================================
+
+const captureStyles = StyleSheet.create({
+  heroTitle: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: colors.text,
+    lineHeight: 40,
+    marginBottom: 12,
+  },
+  heroSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.6)',
+    lineHeight: 24,
+  },
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+    gap: 12,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    lineHeight: 20,
+  },
+  optionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  optionIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  optionInfo: {
+    flex: 1,
+  },
+  optionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  optionSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+    marginBottom: 6,
+  },
+  optionReward: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#10b981',
+  },
+  promptCard: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  promptBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  promptBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  promptText: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#fff',
+    lineHeight: 30,
+    marginBottom: 12,
+  },
+  promptHint: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  recordButton: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  translationInput: {
+    borderRadius: 16,
+    padding: 16,
+    fontSize: 14,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    borderWidth: 1,
+  },
+  submitButton: {
+    borderRadius: 16,
+    paddingVertical: 18,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  rewardInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 32,
+    borderWidth: 1,
   },
 });
 
@@ -2401,8 +3010,8 @@ const walletStyles = StyleSheet.create({
     marginBottom: 8,
   },
   balanceValueRedesign: {
-    fontSize: 56,
-    fontWeight: '900',
+    fontSize: 48,
+    fontWeight: '700',
     color: '#fff',
     marginBottom: 32,
   },
@@ -2596,8 +3205,8 @@ const hubStyles = StyleSheet.create({
     marginTop: 4,
   },
   title: {
-    fontSize: 20,
-    fontWeight: '900',
+    fontSize: 18,
+    fontWeight: '700',
     color: '#fff',
     letterSpacing: 2,
   },
@@ -2847,47 +3456,47 @@ const themeStyles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 16,
+    gap: 12,
   },
   themeCard: {
     width: (Dimensions.get('window').width - 56) / 2,
     backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 28,
-    paddingVertical: 28,
-    paddingHorizontal: 20,
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
     alignItems: 'center',
     borderWidth: 2,
     borderColor: 'transparent',
     marginBottom: 8,
-    minHeight: 160,
+    minHeight: 120,
   },
   themeCardActive: {
     borderColor: '#f59e0b',
     backgroundColor: 'rgba(245, 158, 11, 0.05)',
   },
   themeColor: {
-    width: 72,
-    height: 72,
-    borderRadius: 24,
-    marginBottom: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
   },
   themeName: {
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: '600',
     color: '#fff',
-    letterSpacing: 1.5,
+    letterSpacing: 1,
     marginBottom: 14,
   },
   themeBadge: {
     backgroundColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
-    minWidth: 80,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    minWidth: 60,
     alignItems: 'center',
   },
   themeBadgeActive: {

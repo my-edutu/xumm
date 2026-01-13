@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import {
+import ReactNative from 'react-native';
+const {
   View,
   Text,
   TouchableOpacity,
@@ -7,7 +8,7 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-} from 'react-native';
+} = ReactNative;
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ScreenName } from '../types';
@@ -616,7 +617,7 @@ export const ForgotPasswordScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
 export const OTPScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
   const [otp, setOtp] = useState(['', '', '', '']);
   const [countdown, setCountdown] = useState(59);
-  const inputRefs = useRef<Array<TextInput | null>>([]);
+  const inputRefs = useRef<Array<any | null>>([]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -691,13 +692,13 @@ export const OTPScreen: React.FC<ScreenProps> = ({ onNavigate }) => {
           {otp.map((digit, i) => (
             <TextInput
               key={i}
-              ref={(ref) => { inputRefs.current[i] = ref; }}
+              ref={(ref: any) => { inputRefs.current[i] = ref; }}
               className="w-16 h-16 bg-white/5 border border-white/10 rounded-2xl text-center text-3xl font-black text-cyan-400"
               keyboardType="numeric"
               maxLength={1}
               value={digit}
-              onChangeText={(val) => handleChange(val, i)}
-              onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, i)}
+              onChangeText={(val: string) => handleChange(val, i)}
+              onKeyPress={({ nativeEvent }: any) => handleKeyPress(nativeEvent.key, i)}
             />
           ))}
         </View>
